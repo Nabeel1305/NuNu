@@ -1,0 +1,15 @@
+/* Offline Platform additions on top of pakapay-admin.css (kept separate so the shared file stays a straight copy). */
+.secret-card { border-color: var(--brand-accent); background: var(--warning-bg); }
+.secret-card code { display: block; margin-top: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); word-break: break-all; user-select: all; color: var(--text); }
+.kv { font-size: 13px; color: var(--text-muted); }
+code { color: var(--text); background: var(--surface-2); border-radius: 4px; padding: 1px 5px; font-size: .9em; }
+.auth-body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--sidebar-bg); position: relative; overflow: hidden; }
+.auth-body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(245,164,0,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(245,164,0,.04) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+.auth-card { position: relative; z-index: 1; width: 100%; max-width: 420px; background: var(--surface); border-radius: 20px; padding: 40px; box-shadow: 0 24px 64px rgba(0,0,0,.4); }
+.auth-card::before { content: ''; position: absolute; top: 0; left: 32px; right: 32px; height: 3px; background: linear-gradient(90deg, transparent, var(--brand-accent), transparent); border-radius: 0 0 4px 4px; }
+.auth-mark { width: 54px; height: 54px; border-radius: 16px; background: var(--sidebar-bg); display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; font-size: 26px; color: var(--brand-accent); }
+.auth-card h1 { font-size: 22px; font-weight: 800; text-align: center; margin: 0 0 4px; letter-spacing: -.02em; color: var(--text); }
+.auth-card .sub { text-align: center; font-size: 13px; color: var(--text-muted); margin-bottom: 26px; }
+.auth-card .btn-brand { width: 100%; padding: 11px; }
+.auth-alert { background: var(--danger-bg); color: var(--danger); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+.auth-foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); text-align: center; font-size: 12px; color: var(--text-faint); }

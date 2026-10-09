@@ -16,9 +16,9 @@ class SecurityHeaders
         $response->headers->set('Referrer-Policy', 'no-referrer');
         $response->headers->set('X-Frame-Options', 'DENY');
 
-        // The dashboard serves no scripts and only its own inline styles.
+        // Same-origin scripts, styles, fonts and images only (the admin shell vendors Bootstrap and the icon font under /assets); inline styles stay allowed, inline scripts do not.
         if (! $request->is('api/*')) {
-            $response->headers->set('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'");
+            $response->headers->set('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'");
         }
 
         if ($request->isSecure() && app()->environment('production')) {
