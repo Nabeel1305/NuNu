@@ -35,6 +35,83 @@ class CodesApiTest extends TestCase
         $this->assertDatabaseMissing('payment_codes', ['code_hash' => $plain]);
     }
 
+    public function test_the_response_carries_the_number_and_a_ready_to_dial_string(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('+2347000000001', $tenant);
+
+        $r = $this->issueCode($key)->assertCreated();
+        $code = $r->json('code');
+
+        $r->assertJsonPath('voice_number', '+2347000000001')
+            ->assertJsonPath('dial_string', "+2347000000001,,,{$code}#")
+            ->assertJsonPath('dial_uri', "tel:+2347000000001,,,{$code}%23");
+    }
+
+    public function test_a_number_stored_without_a_plus_is_still_dialled_in_international_form(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('2347000000009', $tenant);
+
+        $this->issueCode($key)->assertJsonPath('voice_number', '+2347000000009');
+    }
+
+    public function test_a_shared_pool_tenant_gets_the_pool_number_and_its_prefixed_code(): void
+    {
+        [$tenant, $key] = $this->makeTenant(['voice_mode' => 'shared']);
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('+2347000000099');                  // shared pool
+        [$other] = $this->makeTenant();
+        $this->makeVoiceNumber('+2347000000002', $other);          // someone else's own number
+
+        $r = $this->issueCode($key)->assertCreated();
+
+        $this->assertStringStartsWith($tenant->short_code, $r->json('code'));
+        $r->assertJsonPath('voice_number', '+2347000000099')
+            ->assertJsonPath('dial_string', '+2347000000099,,,' . $r->json('code') . '#');
+    }
+
+    public function test_a_tenant_never_gets_another_tenants_number_or_a_disabled_one(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        [$other] = $this->makeTenant();
+        $this->makeVoiceNumber('+2347000000002', $other);
+        $this->makeVoiceNumber('+2347000000003', $tenant);
+        \App\Models\VoiceNumber::where('number', '+2347000000003')->update(['active' => false]);
+
+        $this->issueCode($key)->assertCreated()
+            ->assertJsonPath('voice_number', null)
+            ->assertJsonPath('dial_string', null)
+            ->assertJsonPath('dial_uri', null);
+    }
+
+    public function test_the_dial_string_comes_back_unchanged_on_an_idempotent_replay(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('+2347000000001', $tenant);
+
+        $first = $this->issueCode($key, [], 'same-key')->assertCreated();
+        $again = $this->issueCode($key, [], 'same-key');
+
+        $this->assertSame($first->json('dial_string'), $again->json('dial_string'));
+        $this->assertSame($first->json('code'), $again->json('code'));
+    }
+
+    public function test_reading_a_code_never_returns_the_digits_or_the_dial_string(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('+2347000000001', $tenant);
+        $id = $this->issueCode($key)->json('id');
+
+        $this->withToken($key)->getJson("/api/v1/codes/{$id}")->assertOk()
+            ->assertJsonMissingPath('code')->assertJsonMissingPath('dial_string')->assertJsonMissingPath('dial_uri');
+    }
+
     public function test_the_same_idempotency_key_replays_instead_of_issuing_twice(): void
     {
         [$tenant, $key] = $this->makeTenant();

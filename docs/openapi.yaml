@@ -184,6 +184,9 @@ components:
         - type: object
           properties:
             code: { type: string, description: The digits the payer dials. Shown once. }
+            voice_number: { type: [string, 'null'], description: 'The number the payer rings (E.164). Null until one is set up for your account.', examples: ['+2347000000001'] }
+            dial_string: { type: [string, 'null'], description: 'Number, pauses and code in one string for a dialler: voice number, ",,,", the code and a closing "#". Shown once.', examples: ['+2347000000001,,,482019377104#'] }
+            dial_uri: { type: [string, 'null'], description: 'The same as a tel: link, with the "#" percent-encoded. Shown once.', examples: ['tel:+2347000000001,,,482019377104%23'] }
     Transaction:
       type: object
       properties:
