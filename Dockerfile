@@ -40,4 +40,4 @@ RUN mkdir -p storage/framework/views storage/framework/cache/data storage/framew
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
 RUN php artisan storage:link
-RUN php artisan optimize:clear
+RUN php artisan optimize
