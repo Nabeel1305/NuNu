@@ -55,6 +55,9 @@ class TenantUserController extends Controller
     {
         $target = $this->find($tenant, $user);
         $target->update(['is_active' => ! $target->is_active]);
+        if (! $target->is_active) {
+            \App\Models\TenantInvitation::withoutGlobalScopes()->where('tenant_user_id', $target->id)->whereNull('accepted_at')->delete();
+        }
         $this->record($request, $tenant, 'admin.portal_user_toggled', "Portal user {$target->email} " . ($target->is_active ? 'enabled' : 'switched off'), $target);
 
         return back()->with('status', 'Updated.');

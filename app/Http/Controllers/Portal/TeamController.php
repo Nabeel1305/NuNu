@@ -8,6 +8,7 @@ use App\Models\TenantUser;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -52,13 +53,18 @@ class TeamController extends Controller
         $data = $request->validate(['role' => ['required', Rule::in(TenantUser::ROLES)]]);
 
         $this->guardSelf($request, $target);
-        if ($target->role === 'owner' && $data['role'] !== 'owner') {
-            $this->guardLastOwner($target);
-        }
 
-        $old = $target->role;
-        $target->update(['role' => $data['role']]);
-        $this->record($request, 'portal.user_role_changed', "changed {$target->email} from {$old} to {$target->role}", $target);
+        DB::transaction(function () use ($request, $target, $data) {
+            $this->lockOwners();
+            $target->refresh();
+            if ($target->role === 'owner' && $data['role'] !== 'owner') {
+                $this->guardLastOwner($target);
+            }
+
+            $old = $target->role;
+            $target->update(['role' => $data['role']]);
+            $this->record($request, 'portal.user_role_changed', "changed {$target->email} from {$old} to {$target->role}", $target);
+        });
 
         return back()->with('status', 'Role updated.');
     }
@@ -67,12 +73,20 @@ class TeamController extends Controller
     {
         $target = TenantUser::findOrFail($user);
         $this->guardSelf($request, $target);
-        if ($target->is_active && $target->role === 'owner') {
-            $this->guardLastOwner($target);
-        }
 
-        $target->update(['is_active' => ! $target->is_active]);
-        $this->record($request, 'portal.user_toggled', ($target->is_active ? 'enabled ' : 'switched off ') . $target->email, $target);
+        DB::transaction(function () use ($request, $target) {
+            $this->lockOwners();
+            $target->refresh();
+            if ($target->is_active && $target->role === 'owner') {
+                $this->guardLastOwner($target);
+            }
+
+            $target->update(['is_active' => ! $target->is_active]);
+            if (! $target->is_active) {
+                TenantInvitation::withoutGlobalScopes()->where('tenant_user_id', $target->id)->whereNull('accepted_at')->delete();
+            }
+            $this->record($request, 'portal.user_toggled', ($target->is_active ? 'enabled ' : 'switched off ') . $target->email, $target);
+        });
 
         return back()->with('status', $target->is_active ? 'Access restored.' : 'Access switched off. They are signed out on their next request.');
     }
@@ -102,14 +116,28 @@ class TeamController extends Controller
     {
         $target = TenantUser::findOrFail($user);
         $this->guardSelf($request, $target);
-        if ($target->role === 'owner') {
-            $this->guardLastOwner($target);
-        }
 
-        $this->record($request, 'portal.user_removed', "removed {$target->email}", $target);
-        $target->delete();
+        DB::transaction(function () use ($request, $target) {
+            $this->lockOwners();
+            $target->refresh();
+            if ($target->role === 'owner') {
+                $this->guardLastOwner($target);
+            }
+
+            $this->record($request, 'portal.user_removed', "removed {$target->email}", $target);
+            $target->delete();
+        });
 
         return back()->with('status', 'User removed.');
+    }
+
+    /**
+     * Two owners removing or demoting each other at the same moment would each see "the other is still
+     * an owner" and together leave nobody. Locking every owner row first makes them take turns.
+     */
+    private function lockOwners(): void
+    {
+        TenantUser::where('role', 'owner')->lockForUpdate()->pluck('id');
     }
 
     private function guardSelf(Request $request, TenantUser $target): void

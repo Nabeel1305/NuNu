@@ -16,11 +16,26 @@ return [
         'bad_key_per_ip_per_minute' => (int) env('PLATFORM_API_BAD_KEY_PER_MINUTE', 30),
     ],
 
-    // Redemption brute-force limits.
+    // Country code assumed for phone numbers written without one.
+    'default_country_code' => env('PLATFORM_DEFAULT_COUNTRY_CODE', '234'),
+
+    // Redemption brute-force limits. Caller ID can be spoofed, so guessing from many made-up
+    // numbers is bounded by a budget for callers who are NOT registered subscribers; a registered
+    // subscriber's own calls are never starved by it. A genuine payer is therefore only exposed to
+    // that budget when caller binding is off and they call from an unregistered phone.
     'redeem' => [
         'caller_max_failures' => (int) env('PLATFORM_REDEEM_CALLER_FAILURES', 5),
         'caller_decay_seconds' => 600,
         'tenant_max_per_minute' => (int) env('PLATFORM_REDEEM_TENANT_PER_MINUTE', 120),
+        'unknown_caller_per_minute' => (int) env('PLATFORM_REDEEM_UNKNOWN_PER_MINUTE', 30),
+    ],
+
+    // Failed sign-ins across ALL addresses, per account, so guessing cannot be spread over many IPs.
+    'login' => [
+        'account_max_failures' => (int) env('PLATFORM_LOGIN_ACCOUNT_FAILURES', 20),
+        'account_decay_seconds' => 1800,
+        'second_factor_max_failures' => (int) env('PLATFORM_2FA_ACCOUNT_FAILURES', 10),
+        'second_factor_decay_seconds' => 900,
     ],
 
     'admin' => [

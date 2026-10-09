@@ -36,10 +36,16 @@ class AuthController extends Controller
     {
         $credentials = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
 
+        // Two limits: per address (a person fumbling) and per account across ALL addresses
+        // (someone spreading guesses over many addresses).
         $key = 'portal-login:' . sha1(strtolower($credentials['email']) . '|' . $request->ip());
-        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
-            $minutes = (int) ceil(RateLimiter::availableIn($key) / 60);
-            throw ValidationException::withMessages(['email' => "Too many attempts. Try again in {$minutes} minute(s)."]);
+        $accountKey = 'portal-login-account:' . sha1(strtolower($credentials['email']));
+        $accountMax = (int) config('platform.login.account_max_failures');
+        foreach ([[$key, self::MAX_ATTEMPTS], [$accountKey, $accountMax]] as [$k, $max]) {
+            if (RateLimiter::tooManyAttempts($k, $max)) {
+                $minutes = (int) ceil(RateLimiter::availableIn($k) / 60);
+                throw ValidationException::withMessages(['email' => "Too many attempts. Try again in {$minutes} minute(s)."]);
+            }
         }
 
         $user = TenantUser::withoutGlobalScopes()->where('email', $credentials['email'])->first();
@@ -52,6 +58,7 @@ class AuthController extends Controller
 
         if (! $user || ! $passwordOk || ! $user->is_active || ! Tenant::whereKey($user->tenant_id)->exists()) {
             RateLimiter::hit($key, self::DECAY_SECONDS);
+            RateLimiter::hit($accountKey, (int) config('platform.login.account_decay_seconds'));
             throw ValidationException::withMessages(['email' => 'These credentials do not match.']);
         }
 
@@ -83,7 +90,9 @@ class AuthController extends Controller
         $user = TenantUser::withoutGlobalScopes()->find($pending['id']);
 
         $key = 'portal-2fa:' . $user->id . '|' . $request->ip();
-        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
+        $accountKey = 'portal-2fa-account:' . $user->id;
+        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)
+            || RateLimiter::tooManyAttempts($accountKey, (int) config('platform.login.second_factor_max_failures'))) {
             $request->session()->forget('tenant_2fa');
             throw ValidationException::withMessages(['code' => 'Too many attempts. Sign in again later.']);
         }
@@ -91,10 +100,12 @@ class AuthController extends Controller
         $step = Totp::verify($user->totp_secret, $data['code'], now()->timestamp, $user->totp_last_step);
         if ($step === null) {
             RateLimiter::hit($key, self::DECAY_SECONDS);
+            RateLimiter::hit($accountKey, (int) config('platform.login.second_factor_decay_seconds'));
             throw ValidationException::withMessages(['code' => 'That code is not valid.']);
         }
 
         RateLimiter::clear($key);
+        RateLimiter::clear($accountKey);
         $user->forceFill(['totp_last_step' => $step])->save();
         $request->session()->forget('tenant_2fa');
 
@@ -115,7 +126,7 @@ class AuthController extends Controller
     public function invitation(string $token): View
     {
         $invitation = TenantInvitation::findOpen($token);
-        abort_if($invitation === null, 404);
+        abort_if($invitation === null || ! $invitation->user->is_active, 404);
 
         return view('portal.invite', ['user' => $invitation->user, 'token' => $token]);
     }
@@ -123,7 +134,8 @@ class AuthController extends Controller
     public function accept(Request $request, string $token): RedirectResponse
     {
         $invitation = TenantInvitation::findOpen($token);
-        abort_if($invitation === null, 404);
+        // A link never brings a switched-off person back: only an owner can do that.
+        abort_if($invitation === null || ! $invitation->user->is_active, 404);
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
@@ -131,10 +143,19 @@ class AuthController extends Controller
         ]);
 
         $user = $invitation->user;
-        $user->forceFill(['name' => $data['name'], 'password' => $data['password'], 'is_active' => true])->save();
+        $user->forceFill(['name' => $data['name'], 'password' => $data['password']])->save();
         $invitation->forceFill(['accepted_at' => now()])->save();
 
         $this->audit->record($user->tenant_id, 'portal.invitation_accepted', 'tenant_user', $user->id, TenantUser::class, $user->id, "{$user->email} set a password");
+
+        // The link only proves who holds the link. Someone who already has an authenticator still
+        // has to produce a code, or a leaked access link would be a full account takeover.
+        if ($user->hasTwoFactor()) {
+            $request->session()->regenerate();
+            $request->session()->put('tenant_2fa', ['id' => $user->id, 'remember' => false, 'until' => now()->addMinutes(5)->timestamp]);
+
+            return redirect()->route('portal.two-factor');
+        }
 
         return $this->signIn($request, $user, false);
     }

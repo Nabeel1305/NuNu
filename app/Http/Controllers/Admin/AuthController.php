@@ -30,10 +30,15 @@ class AuthController extends Controller
         // real admin out from another network just by guessing at the email.
         $key = 'admin-login:' . sha1(strtolower($credentials['email']) . '|' . $request->ip());
 
-        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
-            $minutes = (int) ceil(RateLimiter::availableIn($key) / 60);
+        // And per account across ALL addresses, so guessing cannot be spread over many of them.
+        $accountKey = 'admin-login-account:' . sha1(strtolower($credentials['email']));
+        $accountMax = (int) config('platform.login.account_max_failures');
+        foreach ([[$key, self::MAX_ATTEMPTS], [$accountKey, $accountMax]] as [$k, $max]) {
+            if (RateLimiter::tooManyAttempts($k, $max)) {
+                $minutes = (int) ceil(RateLimiter::availableIn($k) / 60);
 
-            throw ValidationException::withMessages(['email' => "Too many attempts. Try again in {$minutes} minute(s)."]);
+                throw ValidationException::withMessages(['email' => "Too many attempts. Try again in {$minutes} minute(s)."]);
+            }
         }
 
         $admin = Admin::where('email', $credentials['email'])->first();
@@ -48,6 +53,7 @@ class AuthController extends Controller
 
         if (! $admin || ! $passwordOk || ! $admin->is_active) {
             RateLimiter::hit($key, self::DECAY_SECONDS);
+            RateLimiter::hit($accountKey, (int) config('platform.login.account_decay_seconds'));
 
             // The same message whether the email exists, the password is wrong or the admin is inactive.
             throw ValidationException::withMessages(['email' => 'These credentials do not match.']);

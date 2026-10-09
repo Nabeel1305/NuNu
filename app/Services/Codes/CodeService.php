@@ -162,11 +162,18 @@ class CodeService
     {
         return $this->context->run($tenant, function () use ($tenant, $rawDigits, $callerNumber) {
             $limits = config('platform.redeem');
-            $callerKey = 'redeem:caller:' . $tenant->id . ':' . PhoneNumber::tail($callerNumber);
-            $tenantKey = 'redeem:tenant:' . $tenant->id;
+            $callerNumberKey = PhoneNumber::normalize($callerNumber);
+            $callerKey = 'redeem:caller:' . $tenant->id . ':' . ($callerNumberKey ?: 'withheld');
+
+            // Anyone can fake a caller number, so a flood of guesses from made-up numbers must not be
+            // able to use up the budget real payers depend on. Callers who are registered subscribers
+            // count against the normal tenant budget; everyone else shares a small separate one.
+            $known = $callerNumberKey !== '' && Subscriber::where('phone_normalized', $callerNumberKey)->exists();
+            $tenantKey = ($known ? 'redeem:tenant:' : 'redeem:tenant-unknown:') . $tenant->id;
+            $tenantLimit = $known ? $limits['tenant_max_per_minute'] : $limits['unknown_caller_per_minute'];
 
             if (RateLimiter::tooManyAttempts($callerKey, $limits['caller_max_failures'])
-                || RateLimiter::tooManyAttempts($tenantKey, $limits['tenant_max_per_minute'])) {
+                || RateLimiter::tooManyAttempts($tenantKey, $tenantLimit)) {
                 return RedeemOutcome::rejected('rate_limited');
             }
 

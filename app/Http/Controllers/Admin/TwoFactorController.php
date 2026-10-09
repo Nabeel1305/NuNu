@@ -36,8 +36,10 @@ class TwoFactorController extends Controller
         $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
         $admin = Admin::find($pending['id']);
         $key = 'admin-2fa:' . $admin->id . '|' . $request->ip();
+        $accountKey = 'admin-2fa-account:' . $admin->id;
 
-        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
+        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)
+            || RateLimiter::tooManyAttempts($accountKey, (int) config('platform.login.second_factor_max_failures'))) {
             $request->session()->forget('admin_2fa');
 
             throw ValidationException::withMessages(['code' => 'Too many attempts. Sign in again later.']);
@@ -47,9 +49,12 @@ class TwoFactorController extends Controller
 
         if ($step === null) {
             RateLimiter::hit($key, self::DECAY_SECONDS);
+            RateLimiter::hit($accountKey, (int) config('platform.login.second_factor_decay_seconds'));
 
             throw ValidationException::withMessages(['code' => 'That code is not valid.']);
         }
+
+        RateLimiter::clear($accountKey);
 
         RateLimiter::clear($key);
         $admin->forceFill(['totp_last_step' => $step])->save();

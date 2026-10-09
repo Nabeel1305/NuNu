@@ -11,6 +11,8 @@ class SubscriberController extends Controller
 {
     public function upsert(Request $request, string $reference): JsonResponse
     {
+        validator(['reference' => $reference], ['reference' => ['required', 'string', 'max:191']])->validate();
+
         $data = $request->validate(['phone' => ['nullable', 'string', 'max:32']]);
 
         $subscriber = Subscriber::updateOrCreate(['reference' => $reference], $data);

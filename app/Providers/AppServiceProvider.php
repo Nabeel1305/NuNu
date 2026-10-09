@@ -17,6 +17,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \App\Support\PhoneNumber::$defaultCountryCode = (string) config('platform.default_country_code', '234');
+
         // Per tenant, so one busy partner cannot starve another.
         RateLimiter::for('tenant-api', fn (Request $request) => Limit::perMinute((int) config('platform.api.per_minute'))
             ->by('tenant:' . ($request->attributes->get('tenant')?->id ?? $request->ip())));

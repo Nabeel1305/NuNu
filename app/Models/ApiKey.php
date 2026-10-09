@@ -22,7 +22,10 @@ class ApiKey extends Model
      */
     public static function issue(Tenant $tenant, string $name): array
     {
-        $prefix = Str::lower(bin2hex(random_bytes(4)));
+        do {
+            $prefix = Str::lower(bin2hex(random_bytes(4)));
+        } while (static::where('prefix', $prefix)->exists());
+
         $plain = 'opk_' . $prefix . '_' . bin2hex(random_bytes(20));
 
         $key = static::create([

@@ -48,9 +48,18 @@ class CorsTest extends TestCase
     {
         config(['cors.allowed_origins' => ['https://app.example.com']]);
 
-        $this->call('OPTIONS', '/api/v1/codes', [], [], [], [
+        // The library answers a stranger with the allowed origin's own value, which a browser
+        // refuses to match against the page's origin. What must never happen is "*" or an echo.
+        $stranger = $this->call('OPTIONS', '/api/v1/codes', [], [], [], [
             'HTTP_ORIGIN' => 'https://evil.example.com',
             'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'POST',
-        ])->assertHeaderMissing('Access-Control-Allow-Origin');
+        ]);
+        $this->assertNotContains($stranger->headers->get('Access-Control-Allow-Origin'), ['*', 'https://evil.example.com']);
+
+        $friend = $this->call('OPTIONS', '/api/v1/codes', [], [], [], [
+            'HTTP_ORIGIN' => 'https://app.example.com',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'POST',
+        ]);
+        $this->assertSame('https://app.example.com', $friend->headers->get('Access-Control-Allow-Origin'));
     }
 }
