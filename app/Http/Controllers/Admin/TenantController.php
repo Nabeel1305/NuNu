@@ -60,6 +60,7 @@ class TenantController extends Controller
             'tenant' => $tenant,
             'keys' => $tenant->apiKeys()->orderByDesc('id')->get(),
             'numbers' => VoiceNumber::where('tenant_id', $tenant->id)->orderBy('number')->get(),
+            'portalUsers' => \App\Models\TenantUser::withoutGlobalScopes()->where('tenant_id', $tenant->id)->orderBy('role')->orderBy('name')->get(),
             'deliveries' => WebhookDelivery::withoutGlobalScopes()->where('tenant_id', $tenant->id)->latest('id')->limit(15)->get(),
             'audit' => AuditLog::where('tenant_id', $tenant->id)->latest('id')->limit(15)->get(),
             'pendingTransactions' => Transaction::withoutGlobalScopes()->where('tenant_id', $tenant->id)->where('status', 'pending')->count(),

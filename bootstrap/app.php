@@ -23,8 +23,14 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
 
-        // Unauthenticated dashboard visitors go to the admin login; the API never redirects.
-        $middleware->redirectGuestsTo(fn () => route('admin.login'));
+        // Unauthenticated visitors go to the login of the area they asked for; the API never redirects.
+        $middleware->redirectGuestsTo(fn ($request) => $request->is('portal', 'portal/*') ? route('portal.login') : route('admin.login'));
+
+        $middleware->alias([
+            'portal.context' => \App\Http\Middleware\PortalContext::class,
+            'portal.2fa' => \App\Http\Middleware\EnsureTenantTwoFactor::class,
+            'portal.can' => \App\Http\Middleware\PortalAbility::class,
+        ]);
 
         // The API key middleware must run before the throttle, which keys on the tenant it finds.
         $middleware->prependToPriorityList(

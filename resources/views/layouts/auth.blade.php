@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="{{ asset('assets/css/pakapay-admin.css') }}?v={{ filemtime(public_path('assets/css/pakapay-admin.css')) }}">
     <link rel="stylesheet" href="{{ asset('assets/css/admin-extra.css') }}?v={{ filemtime(public_path('assets/css/admin-extra.css')) }}">
 </head>
-<body class="auth-body">
+<body class="auth-body @yield('theme')">
 <div class="auth-card">
     <div class="auth-mark"><i class="ti ti-@yield('icon', 'shield-lock')"></i></div>
     <h1>@yield('heading')</h1>

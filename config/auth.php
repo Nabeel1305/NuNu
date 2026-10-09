@@ -40,6 +40,12 @@ return [
             'driver' => 'session',
             'provider' => 'admins',
         ],
+
+        // Tenant staff, signed in to /portal. A separate guard and table from the operators.
+        'tenant' => [
+            'driver' => 'session',
+            'provider' => 'tenant_users',
+        ],
     ],
 
     /*
@@ -63,6 +69,11 @@ return [
         'admins' => [
             'driver' => 'eloquent',
             'model' => App\Models\Admin::class,
+        ],
+
+        'tenant_users' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\TenantUser::class,
         ],
 
         // 'users' => [

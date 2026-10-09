@@ -48,7 +48,7 @@ The suite wipes its database every run, so `tests/TestCase.php` refuses any non-
 
 ## Dashboard
 
-`/admin` is for platform operators (not tenants), protected by password plus an authenticator-app code (required in production; `PLATFORM_ADMIN_REQUIRE_2FA=false` to relax it elsewhere). An admin sets theirs up at `/admin/security`; if they lose the phone, `php artisan admin:reset-2fa <email>` (server access) resets it and ends their sessions. Here you can create tenants, change settings, issue and revoke API keys, add and rotate voice numbers, see webhook deliveries and the audit log, and verify the audit chain. There is no tenant self-service yet.
+`/admin` is for platform operators (not tenants), protected by password plus an authenticator-app code (required in production; `PLATFORM_ADMIN_REQUIRE_2FA=false` to relax it elsewhere). An admin sets theirs up at `/admin/security`; if they lose the phone, `php artisan admin:reset-2fa <email>` (server access) resets it and ends their sessions. Here you can create tenants, change settings, issue and revoke API keys, add and rotate voice numbers, see webhook deliveries and the audit log, and verify the audit chain. Tenants have their own portal; see "Tenant portal" below.
 
 ## Operations
 
@@ -74,3 +74,12 @@ The simulation boots the real server, a queue worker and a fake partner webhook 
 - `docs/integration-guide.md` and `docs/openapi.yaml` for partners.
 - `clients/php` and `clients/js`: small API clients with webhook signature verification.
 - `docs/security-review.md`: internal review and open items.
+
+## Tenant portal
+
+Each tenant's own staff sign in at `/portal` (separate from the operator console at `/admin`). They see their transactions, payment codes, subscribers and merchants, can export CSV, manage their own API keys and webhook endpoints, retry failed deliveries, read their audit log (and verify its chain) and manage their team.
+
+    php artisan tenant-user:create <tenant-slug> "Name" person@example.com --role=owner   # prints a one-time invitation link
+    php artisan tenant-user:reset-2fa person@example.com
+
+Operators can also invite the first owner from the tenant's page in `/admin`. Roles: **owner** (everything, including the team and cancelling codes), **developer** (keys, webhooks, delivery logs; no payment amounts), **viewer** (read-only). Two-factor is required in production, as for operators. Payer phone numbers are masked, and the tenant can change none of the operator-controlled settings (environment, settlement adapter, code lifetime, voice numbers). After pulling, run `php artisan migrate`.

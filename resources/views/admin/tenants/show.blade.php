@@ -76,6 +76,42 @@
 </div>
 
 <div class="card mb-4">
+    <div class="card-header"><span class="section-title mb-0 mt-0"><i class="ti ti-users"></i>Portal users</span></div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr><th>Person</th><th>Role</th><th>Status</th><th>2FA</th><th class="text-end"></th></tr></thead>
+            <tbody>
+            @forelse ($portalUsers as $u)
+                <tr>
+                    <td><div class="fw-semibold">{{ $u->name }}</div><div class="kv">{{ $u->email }}</div></td>
+                    <td class="text-capitalize">{{ $u->role }}</td>
+                    <td>@if(! $u->hasAccepted())<span class="badge-warning-soft">invited</span>@elseif($u->is_active)<span class="badge-success-soft">active</span>@else<span class="badge-danger-soft">off</span>@endif</td>
+                    <td>{{ $u->hasTwoFactor() ? 'on' : 'off' }}</td>
+                    <td class="text-end">
+                        <form class="d-inline" method="post" action="{{ route('admin.portal-users.reinvite', [$tenant, $u->id]) }}">@csrf<button class="btn btn-sm btn-brand-outline">New access link</button></form>
+                        @if($u->hasTwoFactor())<form class="d-inline" method="post" action="{{ route('admin.portal-users.reset-2fa', [$tenant, $u->id]) }}" data-confirm="They will set up their authenticator again at next sign-in." data-confirm-label="Reset 2FA">@csrf<button class="btn btn-sm btn-brand-outline">Reset 2FA</button></form>@endif
+                        <form class="d-inline" method="post" action="{{ route('admin.portal-users.toggle', [$tenant, $u->id]) }}">@csrf @method('PATCH')<button class="btn btn-sm btn-brand-outline">{{ $u->is_active ? 'Switch off' : 'Restore' }}</button></form>
+                    </td>
+                </tr>
+            @empty
+                <tr><td colspan="5" class="text-muted">No one can sign in to this tenant's portal yet. Invite the first owner below.</td></tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
+    <div class="card-body border-top">
+        <form method="post" action="{{ route('admin.portal-users.store', $tenant) }}" class="row g-2 align-items-end">
+            @csrf
+            <div class="col-md-3"><label class="form-label" for="pu_name">Name</label><input id="pu_name" name="name" class="form-control" required maxlength="120"></div>
+            <div class="col-md-4"><label class="form-label" for="pu_email">Email</label><input id="pu_email" name="email" type="email" class="form-control" required></div>
+            <div class="col-md-2"><label class="form-label" for="pu_role">Role</label><select id="pu_role" name="role" class="form-select"><option value="owner">Owner</option><option value="developer">Developer</option><option value="viewer">Viewer</option></select></div>
+            <div class="col-auto"><button class="btn btn-brand">Create invitation</button></div>
+        </form>
+        <p class="text-muted mt-3 mb-0">You get a one-time link to pass to them. The portal is at <code>{{ url('/portal') }}</code>.</p>
+    </div>
+</div>
+
+<div class="card mb-4">
     <div class="card-header"><span class="section-title mb-0 mt-0"><i class="ti ti-phone-call"></i>Voice numbers</span></div>
     @if ($tenant->voice_mode === 'shared')<div class="card-body pb-0"><p class="text-muted mb-0">This tenant uses the shared pool. Add shared numbers from the command line: <code>voice-number:add</code> with no tenant.</p></div>@endif
     <div class="table-responsive">
