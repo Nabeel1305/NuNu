@@ -1,0 +1,207 @@
+openapi: 3.1.0
+info:
+  title: Offline Payment Platform API
+  version: 1.0.0
+  description: |
+    Issue one-time payment codes that a payer later redeems by voice call. The
+    platform verifies the call and instructs your system to settle; it never
+    holds funds. All requests are JSON over HTTPS and need a bearer API key.
+servers:
+  - url: https://api.example.com/api/v1
+    description: Replace with your deployment's base URL.
+security:
+  - bearerAuth: []
+paths:
+  /subscribers/{reference}:
+    put:
+      summary: Register or update a payer
+      parameters: [{ $ref: '#/components/parameters/reference' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: [string, 'null'], maxLength: 32, description: Used to match the caller when caller binding is on. }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Subscriber' } } } }
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Subscriber' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /merchants/{reference}:
+    put:
+      summary: Register or update a payee
+      parameters: [{ $ref: '#/components/parameters/reference' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, account_reference]
+              properties:
+                name: { type: string, maxLength: 191 }
+                account_reference: { type: string, maxLength: 191, description: Your reference for the account that is credited. }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /webhook-endpoints:
+    post:
+      summary: Register a webhook endpoint
+      description: The signing secret is returned once. Store it; it cannot be retrieved later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri, description: Public https address. }
+                events:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/EventType' }
+                  description: Omit to receive every event.
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  url: { type: string }
+                  events: { type: [array, 'null'], items: { $ref: '#/components/schemas/EventType' } }
+                  secret: { type: string, description: Shown once. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /codes:
+    post:
+      summary: Issue a payment code
+      description: |
+        Places a hold through your settlement system, then returns the code. The
+        plain code appears only in this response. Retrying with the same
+        Idempotency-Key and body returns the same response.
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriber_reference, merchant_reference, amount_minor, currency, source_account_reference]
+              properties:
+                subscriber_reference: { type: string }
+                merchant_reference: { type: string }
+                amount_minor: { type: integer, minimum: 1, description: Smallest currency unit, e.g. kobo. }
+                currency: { type: string, minLength: 3, maxLength: 3, examples: [NGN] }
+                source_account_reference: { type: string, description: Your reference for the account to hold funds on. }
+      responses:
+        '201': { description: Issued, content: { application/json: { schema: { $ref: '#/components/schemas/IssuedCode' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: Validation, idempotency or settlement rejection, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /codes/{id}:
+    get:
+      summary: Read a code
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200': { description: The code, without its digits, content: { application/json: { schema: { $ref: '#/components/schemas/Code' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /codes/{id}/cancel:
+    post:
+      summary: Cancel an unredeemed code
+      description: Releases the hold. Only a code in state `issued` can be cancelled.
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '200': { description: Cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/Code' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Already redeemed, expired or cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /transactions/{id}:
+    get:
+      summary: Read the outcome of a redemption
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200': { description: The transaction, content: { application/json: { schema: { $ref: '#/components/schemas/Transaction' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+webhooks:
+  event:
+    post:
+      summary: Event delivered to your endpoint
+      description: |
+        Signed with `Offline-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>" using your endpoint secret>`.
+        Reject deliveries whose timestamp is more than five minutes old. Answer with any 2xx
+        to acknowledge; other answers are retried with growing delays. The same event id can
+        arrive more than once, so process by id.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Event' }
+      responses:
+        '200': { description: Acknowledged }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, description: 'API key, e.g. opk_1a2b3c4d_...' }
+  parameters:
+    reference: { name: reference, in: path, required: true, schema: { type: string }, description: Your own identifier. }
+    id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    idempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 100 }, description: A unique value per intended operation, reused when retrying. Remembered for 24 hours. }
+  responses:
+    NotFound: { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    ValidationError: { description: Validation failed, content: { application/json: { schema: { type: object, properties: { message: { type: string }, errors: { type: object } } } } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, examples: [settlement_rejected] }
+            message: { type: string }
+    Subscriber:
+      type: object
+      properties: { reference: { type: string }, phone: { type: [string, 'null'] } }
+    Merchant:
+      type: object
+      properties: { reference: { type: string }, name: { type: string }, account_reference: { type: string } }
+    CodeState:
+      type: string
+      enum: [issued, redeemed, settled, failed, cancelled, expired]
+    Code:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/CodeState' }
+        amount_minor: { type: integer }
+        currency: { type: string }
+        expires_at: { type: string, format: date-time }
+        redeemed_at: { type: [string, 'null'], format: date-time }
+    IssuedCode:
+      allOf:
+        - { $ref: '#/components/schemas/Code' }
+        - type: object
+          properties:
+            code: { type: string, description: The digits the payer dials. Shown once. }
+    Transaction:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code_id: { type: string, format: uuid }
+        reference: { type: string }
+        status: { type: string, enum: [pending, settled, failed] }
+        amount_minor: { type: integer }
+        currency: { type: string }
+        settlement_reference: { type: [string, 'null'] }
+        failure_reason: { type: [string, 'null'] }
+    EventType:
+      type: string
+      enum: [code.redeemed, transaction.settled, transaction.failed, code.expired]
+    Event:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/EventType' }
+        created_at: { type: string, format: date-time }
+        data: { type: object, description: A Code for code.* events, a Transaction for transaction.* events. }
