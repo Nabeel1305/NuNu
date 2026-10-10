@@ -28,12 +28,14 @@ export class Client {
     this.fetch = fetchImpl;
   }
 
-  upsertSubscriber(reference, phone = null) {
-    return this.#request('PUT', `/subscribers/${encodeURIComponent(reference)}`, { phone });
+  /** The account number and bank code are where the payer's funds are held and debited from. */
+  upsertSubscriber(reference, { accountNumber, bankCode, phone = null }) {
+    return this.#request('PUT', `/subscribers/${encodeURIComponent(reference)}`, { account_number: accountNumber, bank_code: bankCode, phone });
   }
 
-  upsertMerchant(reference, name, accountReference) {
-    return this.#request('PUT', `/merchants/${encodeURIComponent(reference)}`, { name, account_reference: accountReference });
+  /** The account number and bank code are where captured funds are credited. accountReference is your own optional label. */
+  upsertMerchant(reference, { name, accountNumber, bankCode, accountReference = null }) {
+    return this.#request('PUT', `/merchants/${encodeURIComponent(reference)}`, { name, account_number: accountNumber, bank_code: bankCode, account_reference: accountReference });
   }
 
   /** The returned `secret` is shown once; store it. */

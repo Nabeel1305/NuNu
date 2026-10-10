@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PaymentCode;
 use App\Models\Tenant;
 use App\Models\VoiceNumber;
+use App\Support\AccountRules;
 use App\Services\Codes\CodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,15 +22,23 @@ class CodeController extends Controller
         $data = $request->validate([
             'subscriber_reference' => ['required', 'string', 'max:191'],
             'merchant_reference' => ['required', 'string', 'max:191'],
+            // Optional: lets an unknown merchant be registered as part of this request.
+            'merchant' => ['sometimes', 'array'],
+            'merchant.name' => ['required_with:merchant', 'string', 'max:191'],
+            'merchant.account_number' => array_merge(['required_with:merchant'], array_slice(AccountRules::number(), 1)),
+            'merchant.bank_code' => array_merge(['required_with:merchant'], array_slice(AccountRules::bankCode(), 1)),
+            'merchant.account_reference' => ['nullable', 'string', 'max:191'],
             'amount_minor' => ['required', 'integer', 'min:1', 'max:999999999999'],
             'currency' => ['required', 'string', 'size:3'],
-            'source_account_reference' => ['required', 'string', 'max:191'],
-        ]);
+            // Optional: your own label for the paying account. The funds are held on the subscriber's
+            // registered account either way.
+            'source_account_reference' => ['nullable', 'string', 'max:191'],
+        ], AccountRules::messages('merchant.'));
 
-        [$code, $plain] = $this->codes->issue($request->attributes->get('tenant'), $data);
+        [$code, $plain, $merchantCreated] = $this->codes->issue($request->attributes->get('tenant'), $data);
 
         // The only response that ever carries the code itself.
-        return response()->json($this->present($code) + ['code' => $plain] + $this->dialing($request->attributes->get('tenant'), $plain), 201);
+        return response()->json($this->present($code) + ['code' => $plain, 'merchant_created' => $merchantCreated] + $this->dialing($request->attributes->get('tenant'), $plain), 201);
     }
 
     public function show(string $uuid): JsonResponse

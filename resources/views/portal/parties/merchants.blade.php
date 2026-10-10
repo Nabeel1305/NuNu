@@ -1,5 +1,6 @@
 @extends('layouts.portal')
 @section('title', 'Merchants')
+@use('App\Support\Mask')
 @section('content')
 <div class="mb-4">
     <h4 class="fw-bold mb-1"><i class="ti ti-building-store me-2" style="color:var(--brand-accent);"></i>Merchants</h4>
@@ -11,7 +12,7 @@
     @else
     <div class="table-responsive"><table class="table">
         <thead><tr><th>Name</th><th>Reference</th><th>Credited account</th><th class="text-end">Codes</th></tr></thead>
-        <tbody>@foreach($rows as $m)<tr><td class="fw-semibold">{{ $m->name }}</td><td>{{ $m->reference }}</td><td>{{ $m->account_reference }}</td><td class="text-end tabular">{{ number_format($m->codes_count) }}</td></tr>@endforeach</tbody>
+        <tbody>@foreach($rows as $m)<tr><td class="fw-semibold">{{ $m->name }}</td><td>{{ $m->reference }}</td><td>@if($m->account_number){{ Mask::account($m->account_number) }}<div class="kv">bank {{ $m->bank_code }}@if($m->account_reference) · {{ $m->account_reference }}@endif</div>@else<span class="badge-warning-soft">not on file</span>@endif</td><td class="text-end tabular">{{ number_format($m->codes_count) }}</td></tr>@endforeach</tbody>
     </table></div>
     <div class="card-body border-top">{{ $rows->links('pagination::bootstrap-5') }}</div>
     @endif

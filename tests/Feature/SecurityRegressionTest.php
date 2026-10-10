@@ -194,7 +194,7 @@ class SecurityRegressionTest extends TestCase
         [, $key] = $this->makeTenant();
         $long = str_repeat('a', 300);
 
-        $this->withToken($key)->putJson("/api/v1/subscribers/{$long}", [])->assertStatus(422);
-        $this->withToken($key)->putJson("/api/v1/merchants/{$long}", ['name' => 'x', 'account_reference' => 'y'])->assertStatus(422);
+        $this->withToken($key)->putJson("/api/v1/subscribers/{$long}", ['account_number' => '2000000001', 'bank_code' => '058'])->assertStatus(422);
+        $this->withToken($key)->putJson("/api/v1/merchants/{$long}", ['name' => 'x', 'account_number' => '3000000001', 'bank_code' => '011'])->assertStatus(422);
     }
 }

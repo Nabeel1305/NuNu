@@ -21,9 +21,9 @@
                     <dt>Transaction id</dt><dd><code>{{ $transaction->uuid }}</code></dd>
                     <dt>Status</dt><dd>@include('portal._badge', ['value' => $transaction->status])</dd>
                     <dt>Amount</dt><dd class="tabular">{{ Money::format($transaction->amount_minor, $transaction->currency) }}</dd>
-                    <dt>Merchant</dt><dd>{{ $code->merchant?->name }} <span class="text-muted">({{ $code->merchant?->reference }})</span><div class="kv">Credits account {{ $code->merchant?->account_reference }}</div></dd>
+                    <dt>Merchant</dt><dd>{{ $code->merchant?->name }} <span class="text-muted">({{ $code->merchant?->reference }})</span><div class="kv">Credits account {{ Mask::account($code->destination_account_number ?? $code->merchant?->account_number) }} · bank {{ $code->destination_bank_code ?? $code->merchant?->bank_code }}</div></dd>
                     <dt>Subscriber</dt><dd>{{ $code->subscriber?->reference }}</dd>
-                    <dt>Paying account</dt><dd>{{ $code->source_account_reference }}</dd>
+                    <dt>Paying account</dt><dd>{{ Mask::account($code->source_account_number ?? $code->source_account_reference) }} · bank {{ $code->source_bank_code ?? '—' }}</dd>
                     <dt>Caller</dt><dd>{{ Mask::phone($code->caller_number) }}</dd>
                     <dt>Settlement reference</dt><dd>{{ $transaction->settlement_reference ?? '—' }}</dd>
                     @if($transaction->failure_reason)<dt>Failure reason</dt><dd class="text-danger">{{ $transaction->failure_reason }}</dd>@endif

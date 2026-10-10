@@ -42,8 +42,7 @@
     "subscriber_reference": "cust-123",
     "merchant_reference": "shop-9",
     "amount_minor": 250000,
-    "currency": "NGN",
-    "source_account_reference": "acct-777"
+    "currency": "NGN"
   }'</pre>
     </div>
 </div>

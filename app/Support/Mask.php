@@ -16,6 +16,14 @@ class Mask
         return substr($phone, 0, 6) . '••••' . substr($phone, -2);
     }
 
+    /** 0123456789 -> ••••6789: enough to recognise an account, not enough to use it. */
+    public static function account(?string $number): string
+    {
+        $number = (string) $number;
+
+        return $number === '' ? '—' : (strlen($number) <= 4 ? str_repeat('•', strlen($number)) : '••••' . substr($number, -4));
+    }
+
     /** Spreadsheet programs run cells that start with = + - @; neutralise them in exports. */
     public static function csv(mixed $value): string
     {

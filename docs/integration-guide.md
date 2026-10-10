@@ -16,8 +16,10 @@ A code can be used once and expires after the time set on your account (default 
 1. Get an API key from the platform operator. Keep it secret; send it as `Authorization: Bearer <key>`.
 2. Register your payers and merchants (these calls can be repeated safely):
 
-       PUT /subscribers/cust-42      {"phone": "+2348012345678"}
-       PUT /merchants/shop-7         {"name": "Corner Shop", "account_reference": "acct-9001"}
+       PUT /subscribers/cust-42      {"account_number": "2000000001", "bank_code": "058", "phone": "+2348012345678"}
+       PUT /merchants/shop-7         {"name": "Corner Shop", "account_number": "3000000001", "bank_code": "011"}
+
+   The subscriber's account is where funds are **held** when a code is issued; the merchant's is where captured funds are **credited**. Both an account number and a bank code are required. A merchant can also be created while issuing a code, by adding a `merchant` object (`name`, `account_number`, `bank_code`) to `POST /codes`.
 
 3. Register a webhook endpoint and **save the secret from the response**; it is shown once:
 
@@ -31,8 +33,7 @@ A code can be used once and expires after the time set on your account (default 
       "subscriber_reference": "cust-42",
       "merchant_reference": "shop-7",
       "amount_minor": 250000,
-      "currency": "NGN",
-      "source_account_reference": "acct-1234"
+      "currency": "NGN"
     }
 
 The response includes `code`. It is not stored in readable form and cannot be fetched again. If a request times out, send it again with the **same** `Idempotency-Key` and body: you get the same code back, never a second one. A different body with a used key is refused with `422`.

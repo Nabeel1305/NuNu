@@ -36,8 +36,18 @@ test('an error response throws ApiError with the code', async () => {
 
 test('path values are encoded', async () => {
   const client = new Client({ apiKey: 'k', baseUrl: 'https://api.test', fetch: reply(200, {}) });
-  await client.upsertSubscriber('a b/c', '+234');
+  await client.upsertSubscriber('a b/c', { accountNumber: '2000000001', bankCode: '058', phone: '+234' });
   assert.equal(reply.last.url, 'https://api.test/subscribers/a%20b%2Fc');
+});
+
+test('subscribers and merchants are sent with their bank account', async () => {
+  const client = new Client({ apiKey: 'k', baseUrl: 'https://api.test', fetch: reply(200, {}) });
+
+  await client.upsertSubscriber('cust', { accountNumber: '2000000001', bankCode: '058' });
+  assert.deepEqual(JSON.parse(reply.last.init.body), { account_number: '2000000001', bank_code: '058', phone: null });
+
+  await client.upsertMerchant('shop', { name: 'Shop', accountNumber: '3000000001', bankCode: '011' });
+  assert.deepEqual(JSON.parse(reply.last.init.body), { name: 'Shop', account_number: '3000000001', bank_code: '011', account_reference: null });
 });
 
 test('webhook verification accepts a good signature and rejects bad, stale or malformed ones', () => {

@@ -11,11 +11,11 @@ use App\Models\Tenant;
  */
 interface SettlementAdapter
 {
-    /** Reserve funds on the payer's account when a code is issued. */
-    public function hold(Tenant $tenant, string $reference, string $accountReference, int $amountMinor, string $currency): SettlementResult;
+    /** Reserve funds on the payer's account (the subscriber's number and bank code) when a code is issued. */
+    public function hold(Tenant $tenant, string $reference, AccountRef $source, int $amountMinor, string $currency): SettlementResult;
 
-    /** Move held funds to the merchant's account once a call is verified. */
-    public function capture(Tenant $tenant, string $holdReference, string $merchantAccountReference, string $transactionReference): SettlementResult;
+    /** Move held funds to the merchant's account (its number and bank code) once a call is verified. */
+    public function capture(Tenant $tenant, string $holdReference, AccountRef $destination, string $transactionReference): SettlementResult;
 
     /** Give held funds back after a cancel, expiry or failed capture. */
     public function release(Tenant $tenant, string $holdReference): SettlementResult;

@@ -47,8 +47,8 @@ class PortalTest extends TestCase
     private function payment(Tenant $tenant, string $status = 'settled', int $amount = 250000, string $merchantRef = 'shop-1', ?string $failure = null): array
     {
         return app(TenantContext::class)->run($tenant, function () use ($tenant, $status, $amount, $merchantRef, $failure) {
-            $sub = Subscriber::firstOrCreate(['reference' => 'sub-1'], ['phone' => '+2348012345678']);
-            $mer = Merchant::firstOrCreate(['reference' => $merchantRef], ['name' => '=Evil Shop', 'account_reference' => 'acct-' . $merchantRef]);
+            $sub = Subscriber::firstOrCreate(['reference' => 'sub-1'], ['phone' => '+2348012345678', 'account_number' => '2000000001', 'bank_code' => '058']);
+            $mer = Merchant::firstOrCreate(['reference' => $merchantRef], ['name' => '=Evil Shop', 'account_number' => '3000000001', 'bank_code' => '011', 'account_reference' => 'acct-' . $merchantRef]);
             $code = PaymentCode::create([
                 'uuid' => (string) Str::uuid(), 'subscriber_id' => $sub->id, 'merchant_id' => $mer->id, 'amount_minor' => $amount,
                 'currency' => 'NGN', 'source_account_reference' => 'acct-payer', 'code_hash' => hash('sha256', Str::random(20)),

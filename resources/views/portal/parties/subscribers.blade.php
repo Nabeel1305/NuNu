@@ -11,8 +11,8 @@
     @if($rows->isEmpty())<div class="empty-state"><i class="ti ti-users"></i><h5>No subscribers</h5></div>
     @else
     <div class="table-responsive"><table class="table">
-        <thead><tr><th>Reference</th><th>Phone</th><th class="text-end">Codes</th><th>Registered</th></tr></thead>
-        <tbody>@foreach($rows as $s)<tr><td class="fw-semibold">{{ $s->reference }}</td><td>{{ Mask::phone($s->phone) }}</td><td class="text-end tabular">{{ number_format($s->codes_count) }}</td><td class="text-muted">{{ $s->created_at->diffForHumans() }}</td></tr>@endforeach</tbody>
+        <thead><tr><th>Reference</th><th>Phone</th><th>Account</th><th class="text-end">Codes</th><th>Registered</th></tr></thead>
+        <tbody>@foreach($rows as $s)<tr><td class="fw-semibold">{{ $s->reference }}</td><td>{{ Mask::phone($s->phone) }}</td><td>@if($s->account_number){{ Mask::account($s->account_number) }}<div class="kv">bank {{ $s->bank_code }}</div>@else<span class="badge-warning-soft">not on file</span>@endif</td><td class="text-end tabular">{{ number_format($s->codes_count) }}</td><td class="text-muted">{{ $s->created_at->diffForHumans() }}</td></tr>@endforeach</tbody>
     </table></div>
     <div class="card-body border-top">{{ $rows->links('pagination::bootstrap-5') }}</div>
     @endif

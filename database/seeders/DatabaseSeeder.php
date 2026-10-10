@@ -60,11 +60,21 @@ class DatabaseSeeder extends Seeder
 
             $context->run($tenant, function () use ($tenant, $i) {
                 foreach (range(1, 5) as $n) {
-                    Subscriber::create(['reference' => "sub-{$n}", 'phone' => '+23480' . ($i + 1) . str_pad((string) $n, 7, '0', STR_PAD_LEFT)]);
+                    Subscriber::create([
+                        'reference' => "sub-{$n}",
+                        'phone' => '+23480' . ($i + 1) . str_pad((string) $n, 7, '0', STR_PAD_LEFT),
+                        'account_number' => '20' . str_pad((string) (($i + 1) * 10 + $n), 8, '0', STR_PAD_LEFT),
+                        'bank_code' => '058',
+                    ]);
                 }
 
                 foreach (['shop-1' => 'Corner Shop', 'shop-2' => 'Fuel Station'] as $ref => $shop) {
-                    Merchant::create(['reference' => $ref, 'name' => $shop, 'account_reference' => "acct-{$tenant->slug}-{$ref}"]);
+                    Merchant::create([
+                        'reference' => $ref, 'name' => $shop,
+                        'account_number' => '30' . str_pad((string) (($i + 1) * 10 + (int) substr($ref, -1)), 8, '0', STR_PAD_LEFT),
+                        'bank_code' => '011',
+                        'account_reference' => "acct-{$tenant->slug}-{$ref}",
+                    ]);
                 }
             });
 
@@ -131,7 +141,11 @@ class DatabaseSeeder extends Seeder
                     'subscriber_id' => $subscribers[$i % $subscribers->count()]->id,
                     'merchant_id' => $merchants[$i % $merchants->count()]->id,
                     'amount_minor' => $amount, 'currency' => 'NGN',
-                    'source_account_reference' => 'acct-demo-' . ($i % 5 + 1),
+                    'source_account_reference' => $subscribers[$i % $subscribers->count()]->account_number,
+                    'source_account_number' => $subscribers[$i % $subscribers->count()]->account_number,
+                    'source_bank_code' => $subscribers[$i % $subscribers->count()]->bank_code,
+                    'destination_account_number' => $merchants[$i % $merchants->count()]->account_number,
+                    'destination_bank_code' => $merchants[$i % $merchants->count()]->bank_code,
                     'code_hash' => hash('sha256', Str::random(24)),
                     'state' => match ($status) { 'settled' => CodeState::Settled, 'failed' => CodeState::Failed, default => CodeState::Redeemed },
                     'expires_at' => $at->copy()->addMinutes(5), 'redeemed_at' => $at->copy()->addMinute(),

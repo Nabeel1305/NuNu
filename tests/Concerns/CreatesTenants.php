@@ -32,8 +32,8 @@ trait CreatesTenants
     protected function seedParties(Tenant $tenant, string $phone = '+2348012345678'): void
     {
         app(TenantContext::class)->run($tenant, function () use ($phone) {
-            Subscriber::create(['reference' => 'sub-1', 'phone' => $phone]);
-            Merchant::create(['reference' => 'shop-1', 'name' => 'Corner Shop', 'account_reference' => 'acct-shop']);
+            Subscriber::create(['reference' => 'sub-1', 'phone' => $phone, 'account_number' => '2000000001', 'bank_code' => '058']);
+            Merchant::create(['reference' => 'shop-1', 'name' => 'Corner Shop', 'account_number' => '3000000001', 'bank_code' => '011', 'account_reference' => 'acct-shop']);
         });
     }
 

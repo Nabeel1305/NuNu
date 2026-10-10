@@ -67,9 +67,21 @@ class PhpClientTest extends TestCase
     public function test_path_values_are_encoded(): void
     {
         $seen = [];
-        $this->client($seen, 200, '{}')->upsertSubscriber('a b/c', '+234');
+        $this->client($seen, 200, '{}')->upsertSubscriber('a b/c', '2000000001', '058', '+234');
 
         $this->assertSame('https://api.test/api/v1/subscribers/a%20b%2Fc', $seen['url']);
+    }
+
+    public function test_subscribers_and_merchants_are_sent_with_their_bank_account(): void
+    {
+        $seen = [];
+        $client = $this->client($seen, 200, '{}');
+
+        $client->upsertSubscriber('cust', '2000000001', '058');
+        $this->assertSame(['account_number' => '2000000001', 'bank_code' => '058', 'phone' => null], json_decode($seen['payload'], true));
+
+        $client->upsertMerchant('shop', 'Shop', '3000000001', '011');
+        $this->assertSame(['name' => 'Shop', 'account_number' => '3000000001', 'bank_code' => '011', 'account_reference' => null], json_decode($seen['payload'], true));
     }
 
     public function test_webhook_verification_matches_the_platform_signer(): void

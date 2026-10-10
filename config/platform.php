@@ -16,6 +16,13 @@ return [
         'bad_key_per_ip_per_minute' => (int) env('PLATFORM_API_BAD_KEY_PER_MINUTE', 30),
     ],
 
+    // What an account number and a bank code must look like (regex bodies, no delimiters). The defaults
+    // fit Nigerian NUBAN account numbers and CBN bank codes; change them for another market.
+    'accounts' => [
+        'number_pattern' => env('PLATFORM_ACCOUNT_NUMBER_PATTERN', '^\\d{10}$'),
+        'bank_code_pattern' => env('PLATFORM_BANK_CODE_PATTERN', '^[A-Za-z0-9]{3,10}$'),
+    ],
+
     // Country code assumed for phone numbers written without one.
     'default_country_code' => env('PLATFORM_DEFAULT_COUNTRY_CODE', '234'),
 

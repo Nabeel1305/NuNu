@@ -24,7 +24,8 @@
             <dt>Amount</dt><dd class="tabular">{{ Money::format($code->amount_minor, $code->currency) }}</dd>
             <dt>Merchant</dt><dd>{{ $code->merchant?->name }} <span class="text-muted">({{ $code->merchant?->reference }})</span></dd>
             <dt>Subscriber</dt><dd>{{ $code->subscriber?->reference }}</dd>
-            <dt>Paying account</dt><dd>{{ $code->source_account_reference }}</dd>
+            <dt>Paying account</dt><dd>{{ Mask::account($code->source_account_number ?? $code->source_account_reference) }} · bank {{ $code->source_bank_code ?? '—' }}</dd>
+            <dt>Credits account</dt><dd>{{ Mask::account($code->destination_account_number ?? $code->merchant?->account_number) }} · bank {{ $code->destination_bank_code ?? $code->merchant?->bank_code ?? '—' }}</dd>
             <dt>Hold reference</dt><dd>{{ $code->hold_reference ?? '—' }}</dd>
             <dt>Issued</dt><dd>{{ $code->created_at }}</dd>
             <dt>Expires</dt><dd>{{ $code->expires_at }}</dd>

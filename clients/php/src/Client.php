@@ -19,14 +19,16 @@ class Client
         $this->transport = $transport ?? [$this, 'curl'];
     }
 
-    public function upsertSubscriber(string $reference, ?string $phone = null): array
+    /** The account number and bank code are where the payer's funds are held and debited from. */
+    public function upsertSubscriber(string $reference, string $accountNumber, string $bankCode, ?string $phone = null): array
     {
-        return $this->request('PUT', '/subscribers/' . rawurlencode($reference), ['phone' => $phone]);
+        return $this->request('PUT', '/subscribers/' . rawurlencode($reference), ['account_number' => $accountNumber, 'bank_code' => $bankCode, 'phone' => $phone]);
     }
 
-    public function upsertMerchant(string $reference, string $name, string $accountReference): array
+    /** The account number and bank code are where captured funds are credited; $accountReference is your own optional label. */
+    public function upsertMerchant(string $reference, string $name, string $accountNumber, string $bankCode, ?string $accountReference = null): array
     {
-        return $this->request('PUT', '/merchants/' . rawurlencode($reference), ['name' => $name, 'account_reference' => $accountReference]);
+        return $this->request('PUT', '/merchants/' . rawurlencode($reference), ['name' => $name, 'account_number' => $accountNumber, 'bank_code' => $bankCode, 'account_reference' => $accountReference]);
     }
 
     /** The returned `secret` is shown once; store it. */

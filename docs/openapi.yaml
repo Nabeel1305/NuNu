@@ -21,7 +21,10 @@ paths:
           application/json:
             schema:
               type: object
+              required: [account_number, bank_code]
               properties:
+                account_number: { type: string, pattern: '^\d{10}$', description: The payer's bank account. Funds are held on it when a code is issued. Format is configurable per deployment. }
+                bank_code: { type: string, pattern: '^[A-Za-z0-9]{3,10}$', description: Bank code of that account (e.g. 058). }
                 phone: { type: [string, 'null'], maxLength: 32, description: Used to match the caller when caller binding is on. }
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Subscriber' } } } }
@@ -37,10 +40,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, account_reference]
+              required: [name, account_number, bank_code]
               properties:
                 name: { type: string, maxLength: 191 }
-                account_reference: { type: string, maxLength: 191, description: Your reference for the account that is credited. }
+                account_number: { type: string, pattern: '^\d{10}$', description: The account credited when a payment is captured. }
+                bank_code: { type: string, pattern: '^[A-Za-z0-9]{3,10}$' }
+                account_reference: { type: [string, 'null'], maxLength: 191, description: Optional label of your own for that account. }
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
@@ -90,13 +95,25 @@ paths:
           application/json:
             schema:
               type: object
-              required: [subscriber_reference, merchant_reference, amount_minor, currency, source_account_reference]
+              required: [subscriber_reference, merchant_reference, amount_minor, currency]
               properties:
                 subscriber_reference: { type: string }
                 merchant_reference: { type: string }
+                merchant:
+                  type: object
+                  required: [name, account_number, bank_code]
+                  description: |
+                    Optional. If merchant_reference is not registered yet, it is created from these details
+                    together with the code (only when the hold succeeds). An existing merchant is never
+                    changed; a different account_number or bank_code is refused with 422.
+                  properties:
+                    name: { type: string, maxLength: 191 }
+                    account_number: { type: string, pattern: '^\d{10}$' }
+                    bank_code: { type: string, pattern: '^[A-Za-z0-9]{3,10}$' }
+                    account_reference: { type: [string, 'null'], maxLength: 191 }
                 amount_minor: { type: integer, minimum: 1, description: Smallest currency unit, e.g. kobo. }
                 currency: { type: string, minLength: 3, maxLength: 3, examples: [NGN] }
-                source_account_reference: { type: string, description: Your reference for the account to hold funds on. }
+                source_account_reference: { type: string, description: 'Optional label of your own for the paying account. Funds are held on the subscriber''s registered account either way. Defaults to its account number.' }
       responses:
         '201': { description: Issued, content: { application/json: { schema: { $ref: '#/components/schemas/IssuedCode' } } } }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -162,10 +179,10 @@ components:
             message: { type: string }
     Subscriber:
       type: object
-      properties: { reference: { type: string }, phone: { type: [string, 'null'] } }
+      properties: { reference: { type: string }, phone: { type: [string, 'null'] }, account_number: { type: string }, bank_code: { type: string } }
     Merchant:
       type: object
-      properties: { reference: { type: string }, name: { type: string }, account_reference: { type: string } }
+      properties: { reference: { type: string }, name: { type: string }, account_number: { type: string }, bank_code: { type: string }, account_reference: { type: [string, 'null'] } }
     CodeState:
       type: string
       enum: [issued, redeemed, settled, failed, cancelled, expired]
@@ -184,6 +201,7 @@ components:
         - type: object
           properties:
             code: { type: string, description: The digits the payer dials. Shown once. }
+            merchant_created: { type: boolean, description: True when this request registered the merchant. }
             voice_number: { type: [string, 'null'], description: 'The number the payer rings (E.164). Null until one is set up for your account.', examples: ['+2347000000001'] }
             dial_string: { type: [string, 'null'], description: 'Number, pauses and code in one string for a dialler: voice number, ",,,", the code and a closing "#". Shown once.', examples: ['+2347000000001,,,482019377104#'] }
             dial_uri: { type: [string, 'null'], description: 'The same as a tel: link, with the "#" percent-encoded. Shown once.', examples: ['tel:+2347000000001,,,482019377104%23'] }

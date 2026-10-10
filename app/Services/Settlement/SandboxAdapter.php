@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
  */
 class SandboxAdapter implements SettlementAdapter
 {
-    public function hold(Tenant $tenant, string $reference, string $accountReference, int $amountMinor, string $currency): SettlementResult
+    public function hold(Tenant $tenant, string $reference, AccountRef $source, int $amountMinor, string $currency): SettlementResult
     {
         if ($tenant->setting('sandbox.fail_hold')) {
             return SettlementResult::rejected('Insufficient funds (sandbox).');
@@ -21,7 +21,7 @@ class SandboxAdapter implements SettlementAdapter
         return SettlementResult::ok('hold_' . Str::uuid());
     }
 
-    public function capture(Tenant $tenant, string $holdReference, string $merchantAccountReference, string $transactionReference): SettlementResult
+    public function capture(Tenant $tenant, string $holdReference, AccountRef $destination, string $transactionReference): SettlementResult
     {
         if ($tenant->setting('sandbox.fail_capture')) {
             return SettlementResult::rejected('Capture declined (sandbox).');

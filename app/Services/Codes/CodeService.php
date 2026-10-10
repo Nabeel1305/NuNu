@@ -8,15 +8,18 @@ use App\Models\Subscriber;
 use App\Models\Tenant;
 use App\Models\Transaction;
 use App\Services\Audit\AuditLogService;
+use App\Services\Settlement\AccountRef;
 use App\Services\Settlement\SettlementManager;
 use App\Services\Settlement\SettlementRejected;
 use App\Services\Webhooks\WebhookDispatcher;
+use App\Support\Mask;
 use App\Support\PhoneNumber;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class CodeService
 {
@@ -33,14 +36,40 @@ class CodeService
      * Issue a one-time code and place a hold for it. Returns the model and the
      * plain code; the plain code exists only in this return value.
      *
-     * @param array{subscriber_reference:string, merchant_reference:string, amount_minor:int, currency:string, source_account_reference:string} $data
-     * @return array{0: PaymentCode, 1: string}
+     * Funds are held on the subscriber's registered account and will be credited to the merchant's.
+     * Both accounts are frozen on the code now, so editing a merchant later cannot redirect a payment
+     * already in flight.
+     *
+     * The merchant may be registered on the spot: pass `merchant` => [name, account_number, bank_code]
+     * and an unknown merchant_reference is created together with the code (and only if the hold
+     * succeeds). An existing merchant is never changed this way, and a different account is refused,
+     * because the account to credit must not be rewritable by a payment request.
+     *
+     * @param array{subscriber_reference:string, merchant_reference:string, merchant?:array{name:string, account_number:string, bank_code:string, account_reference?:?string}, amount_minor:int, currency:string, source_account_reference?:?string} $data
+     * @return array{0: PaymentCode, 1: string, 2: bool} the code, its plain digits, and whether the merchant was created
      */
     public function issue(Tenant $tenant, array $data): array
     {
         return $this->context->run($tenant, function () use ($tenant, $data) {
             $subscriber = Subscriber::where('reference', $data['subscriber_reference'])->firstOrFail();
-            $merchant = Merchant::where('reference', $data['merchant_reference'])->firstOrFail();
+            if (blank($subscriber->account_number) || blank($subscriber->bank_code)) {
+                throw ValidationException::withMessages(['subscriber_reference' =>
+                    "Subscriber {$subscriber->reference} has no bank account on file. Register it with PUT /subscribers/{$subscriber->reference} (account_number and bank_code)."]);
+            }
+
+            $inline = $data['merchant'] ?? null;
+            $merchant = Merchant::where('reference', $data['merchant_reference'])->first();
+
+            if ($merchant === null && $inline === null) {
+                Merchant::where('reference', $data['merchant_reference'])->firstOrFail();   // the usual 404
+            }
+            if ($merchant !== null && blank($merchant->account_number)) {
+                throw ValidationException::withMessages(['merchant_reference' =>
+                    "Merchant {$merchant->reference} has no bank account on file. Register it with PUT /merchants/{$merchant->reference} (name, account_number and bank_code)."]);
+            }
+            if ($merchant !== null && $inline !== null) {
+                $this->assertSameAccount($merchant, $inline);
+            }
 
             $max = $tenant->setting('max_amount_minor');
             if ($max !== null && $data['amount_minor'] > (int) $max) {
@@ -50,14 +79,43 @@ class CodeService
             $uuid = (string) Str::uuid();
             $adapter = $this->settlement->for($tenant);
 
-            $hold = $adapter->hold($tenant, $uuid, $data['source_account_reference'], $data['amount_minor'], strtoupper($data['currency']));
+            $hold = $adapter->hold(
+                $tenant, $uuid,
+                new AccountRef($subscriber->account_number, $subscriber->bank_code, $data['source_account_reference'] ?? null),
+                $data['amount_minor'], strtoupper($data['currency'])
+            );
 
             if (! $hold->ok) {
                 throw new SettlementRejected($hold->reason ?? 'The hold was rejected.');
             }
 
             try {
-                return DB::transaction(function () use ($tenant, $data, $subscriber, $merchant, $uuid, $hold) {
+                return DB::transaction(function () use ($tenant, $data, $subscriber, $merchant, $inline, $uuid, $hold) {
+                    // Local copy: if the transaction is retried after a deadlock, start from what the caller found.
+                    $resolved = $merchant;
+                    $merchantCreated = false;
+                    if ($resolved === null) {
+                        // Another request may register the same merchant at the same moment: createOrFirst
+                        // takes whichever row won, and we then check it credits the account we were given.
+                        $resolved = Merchant::createOrFirst(
+                            ['reference' => $data['merchant_reference']],
+                            [
+                                'name' => $inline['name'],
+                                'account_number' => $inline['account_number'],
+                                'bank_code' => $inline['bank_code'],
+                                'account_reference' => $inline['account_reference'] ?? null,
+                            ],
+                        );
+                        $merchantCreated = $resolved->wasRecentlyCreated;
+
+                        if ($merchantCreated) {
+                            $this->audit->record($tenant->id, 'merchant.created', 'tenant', null, Merchant::class, $resolved->id,
+                                "Merchant {$resolved->reference} registered while issuing a code", ['account_number' => Mask::account($resolved->account_number), 'bank_code' => $resolved->bank_code], $resolved->reference);
+                        } else {
+                            $this->assertSameAccount($resolved, $inline);
+                        }
+                    }
+
                     $prefix = $tenant->usesSharedNumber() ? $tenant->short_code : '';
 
                     do {
@@ -68,10 +126,14 @@ class CodeService
                     $code = PaymentCode::create([
                         'uuid' => $uuid,
                         'subscriber_id' => $subscriber->id,
-                        'merchant_id' => $merchant->id,
+                        'merchant_id' => $resolved->id,
                         'amount_minor' => $data['amount_minor'],
                         'currency' => strtoupper($data['currency']),
-                        'source_account_reference' => $data['source_account_reference'],
+                        'source_account_reference' => $data['source_account_reference'] ?? $subscriber->account_number,
+                        'source_account_number' => $subscriber->account_number,
+                        'source_bank_code' => $subscriber->bank_code,
+                        'destination_account_number' => $resolved->account_number,
+                        'destination_bank_code' => $resolved->bank_code,
                         'code_hash' => $hash,
                         'state' => CodeState::Issued,
                         'hold_reference' => $hold->reference,
@@ -81,7 +143,7 @@ class CodeService
                     $this->audit->record($tenant->id, 'code.issued', 'tenant', null, PaymentCode::class, $code->id,
                         "Code issued for {$code->amount_minor} {$code->currency}", ['uuid' => $uuid], $uuid);
 
-                    return [$code, $plain];
+                    return [$code, $plain, $merchantCreated];
                 }, 3);
             } catch (\Throwable $e) {
                 // The hold was placed but we could not record the code: give the money back.
@@ -90,6 +152,17 @@ class CodeService
                 throw $e;
             }
         });
+    }
+
+    /** @param array{account_number:string, bank_code:string} $inline */
+    private function assertSameAccount(Merchant $merchant, array $inline): void
+    {
+        if ($merchant->account_number !== $inline['account_number'] || $merchant->bank_code !== $inline['bank_code']) {
+            throw ValidationException::withMessages([
+                'merchant.account_number' => "Merchant {$merchant->reference} is already registered with a different account. "
+                    . "Change it with PUT /merchants/{$merchant->reference}, or leave the merchant details out of this request.",
+            ]);
+        }
     }
 
     /** Cancel an unredeemed code and release its hold. */
@@ -240,13 +313,25 @@ class CodeService
         });
     }
 
+    /** The merchant account frozen on the code; codes issued before that was recorded fall back to the merchant's current one. */
+    private function destinationOf(PaymentCode $code): AccountRef
+    {
+        $merchant = $code->merchant;
+
+        return new AccountRef(
+            (string) ($code->destination_account_number ?? $merchant->account_number),
+            (string) ($code->destination_bank_code ?? $merchant->bank_code),
+            $merchant->account_reference,
+        );
+    }
+
     private function capture(Tenant $tenant, PaymentCode $code): void
     {
         $transaction = $code->transaction;
 
         try {
             $result = $this->settlement->for($tenant)->capture(
-                $tenant, $code->hold_reference, $code->merchant->account_reference, $transaction->reference
+                $tenant, $code->hold_reference, $this->destinationOf($code), $transaction->reference
             );
         } catch (\Throwable $e) {
             // Outcome unknown: leave the code redeemed and the transaction pending

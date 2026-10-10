@@ -22,8 +22,8 @@ After pulling changes, run `php artisan migrate`. A tenant created before the au
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| PUT | `/subscribers/{reference}` | `phone` optional |
-| PUT | `/merchants/{reference}` | `name`, `account_reference` |
+| PUT | `/subscribers/{reference}` | `account_number`, `bank_code` (`phone` optional) |
+| PUT | `/merchants/{reference}` | `name`, `account_number`, `bank_code` (`account_reference` optional) |
 | POST | `/webhook-endpoints` | `url` (https), optional `events`; returns the signing `secret` once |
 | POST | `/codes` | needs `Idempotency-Key`; returns the code once |
 | GET | `/codes/{id}` | never includes the code |
