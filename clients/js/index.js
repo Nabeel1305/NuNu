@@ -20,6 +20,46 @@ export function verifyWebhook(secret, header, rawBody, { toleranceSeconds = 300,
   return timingSafeEqual(expected, Buffer.from(match[2], 'hex'));
 }
 
+const WINDOW_SECONDS = 300;
+
+/**
+ * Build the 40-digit code a phone dials with no connection. Reference implementation of the format;
+ * the server accepts the previous, current and next 5-minute window, so the phone's clock must be
+ * within about 5 minutes of the real time.
+ *
+ * @param {object} p
+ * @param {string|Buffer} p.deviceKey   key from enrolDevice(): base64 string or the 32 raw bytes
+ * @param {string} p.deviceShortId      8 digits, from enrolDevice()
+ * @param {number} p.counter            strictly greater than the last one used (start at last_counter + 1), max 99999
+ * @param {number} p.amountMinor        whole number of kobo, 1 to 99,999,999
+ * @param {string} p.merchantShortId    8 digits, from the merchant's QR / getMerchant()
+ * @param {{accountNumber: string, bankCode: string}} p.source       the subscriber's own account
+ * @param {{accountNumber: string, bankCode: string}} p.destination  the merchant's account, as shown on its QR
+ * @param {string} [p.currency='NGN']
+ * @param {number} [p.now]              unix seconds
+ */
+export function buildDeviceCode({ deviceKey, deviceShortId, counter, amountMinor, merchantShortId, source, destination, currency = 'NGN', now = Math.floor(Date.now() / 1000) }) {
+  if (!/^\d{8}$/.test(deviceShortId) || !/^\d{8}$/.test(merchantShortId)) throw new RangeError('short ids must be 8 digits');
+  if (!Number.isInteger(counter) || counter < 1 || counter > 99999) throw new RangeError('counter must be 1..99999');
+  if (!Number.isInteger(amountMinor) || amountMinor < 1 || amountMinor > 99999999) throw new RangeError('amountMinor must be 1..99999999');
+
+  const key = Buffer.isBuffer(deviceKey) ? deviceKey : Buffer.from(deviceKey, 'base64');
+  const window = Math.floor(now / WINDOW_SECONDS);
+  const canonical = ['nunu-d1', deviceShortId, counter, amountMinor, merchantShortId, window, currency.toUpperCase(),
+    source.accountNumber, source.bankCode, destination.accountNumber, destination.bankCode].join('|');
+
+  // first 5 bytes of HMAC-SHA256, big-endian, mod 10^10, zero-padded to 10 digits
+  const mac = createHmac('sha256', key).update(canonical).digest();
+  const value = mac.readUIntBE(0, 5) % 10_000_000_000;
+
+  return '1' + deviceShortId + String(counter).padStart(5, '0') + String(amountMinor).padStart(8, '0') + merchantShortId + String(value).padStart(10, '0');
+}
+
+/** Number, pauses, code and "#": what a dialler needs. On a shared voice number pass the tenant's 4-digit short code as `prefix`. */
+export function dialString(voiceNumber, code, prefix = '') {
+  return `${voiceNumber},,,${prefix}${code}#`;
+}
+
 export class Client {
   /** @param {{apiKey: string, baseUrl: string, fetch?: typeof fetch}} options */
   constructor({ apiKey, baseUrl, fetch: fetchImpl = globalThis.fetch }) {
@@ -57,6 +97,24 @@ export class Client {
 
   cancelCode(id, idempotencyKey = randomUUID()) {
     return this.#request('POST', `/codes/${encodeURIComponent(id)}/cancel`, undefined, idempotencyKey);
+  }
+
+  /** Enrol a phone for a subscriber. The returned device_key is the phone's secret: keep it in secure storage. Safe to repeat. */
+  enrolDevice(subscriberReference, deviceId) {
+    return this.#request('POST', `/subscribers/${encodeURIComponent(subscriberReference)}/devices`, { device_id: deviceId });
+  }
+
+  listDevices(subscriberReference) {
+    return this.#request('GET', `/subscribers/${encodeURIComponent(subscriberReference)}/devices`);
+  }
+
+  revokeDevice(subscriberReference, deviceId) {
+    return this.#request('DELETE', `/subscribers/${encodeURIComponent(subscriberReference)}/devices/${encodeURIComponent(deviceId)}`);
+  }
+
+  /** Includes the short_id a phone puts in an offline code. */
+  getMerchant(reference) {
+    return this.#request('GET', `/merchants/${encodeURIComponent(reference)}`);
   }
 
   getTransaction(id) {

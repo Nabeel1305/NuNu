@@ -57,6 +57,28 @@ class Client
         return $this->request('POST', '/codes/' . rawurlencode($id) . '/cancel', null, $idempotencyKey ?? bin2hex(random_bytes(16)));
     }
 
+    /** Enrol a phone for a subscriber. The returned device_key is the phone's secret: keep it in secure storage. Safe to repeat. */
+    public function enrolDevice(string $subscriberReference, string $deviceId): array
+    {
+        return $this->request('POST', '/subscribers/' . rawurlencode($subscriberReference) . '/devices', ['device_id' => $deviceId]);
+    }
+
+    public function listDevices(string $subscriberReference): array
+    {
+        return $this->request('GET', '/subscribers/' . rawurlencode($subscriberReference) . '/devices');
+    }
+
+    public function revokeDevice(string $subscriberReference, string $deviceId): array
+    {
+        return $this->request('DELETE', '/subscribers/' . rawurlencode($subscriberReference) . '/devices/' . rawurlencode($deviceId));
+    }
+
+    /** Includes the short_id a phone puts in an offline code. */
+    public function getMerchant(string $reference): array
+    {
+        return $this->request('GET', '/merchants/' . rawurlencode($reference));
+    }
+
     public function getTransaction(string $id): array
     {
         return $this->request('GET', '/transactions/' . rawurlencode($id));

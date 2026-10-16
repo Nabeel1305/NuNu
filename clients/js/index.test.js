@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { Client, ApiError, verifyWebhook } from './index.js';
+import { Client, ApiError, verifyWebhook, buildDeviceCode, dialString } from './index.js';
 
 const reply = (status, body) => async (url, init) => {
   reply.last = { url, init };
@@ -65,4 +65,57 @@ test('verifies a signature produced by the platform (shared fixed vector)', () =
   // Same vector asserted in tests/Unit/PhpClientTest.php.
   const header = 't=1000,v1=8e34e23174d8364a4b53cfafdf794866781da3c798cb1437af1ff66b34777988';
   assert.equal(verifyWebhook('whsec_x', header, '{"a":1}', { now: 1000 }), true);
+});
+
+// Shared with tests/Unit/DeviceCodeFormatTest.php: the same inputs must give the same digits in every implementation.
+const VECTOR = {
+  deviceKey: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+  source: { accountNumber: '2000000001', bankCode: '058' },
+  destination: { accountNumber: '3000000001', bankCode: '011' },
+  now: 1791600000,
+};
+
+test('device codes match the server test vectors byte for byte', () => {
+  assert.equal(
+    buildDeviceCode({ ...VECTOR, deviceShortId: '48201937', counter: 42, amountMinor: 250000, merchantShortId: '70011234' }),
+    '1482019370004200250000700112344868933947',
+  );
+  assert.equal(
+    buildDeviceCode({ ...VECTOR, deviceShortId: '00000007', counter: 1, amountMinor: 100, merchantShortId: '00000009' }),
+    '1000000070000100000100000000090281068932',
+  );
+});
+
+test('device codes are 40 digits and reject out-of-range input', () => {
+  const ok = { ...VECTOR, deviceShortId: '48201937', counter: 1, amountMinor: 1, merchantShortId: '70011234' };
+  assert.match(buildDeviceCode(ok), /^\d{40}$/);
+  assert.throws(() => buildDeviceCode({ ...ok, counter: 0 }), RangeError);
+  assert.throws(() => buildDeviceCode({ ...ok, counter: 100000 }), RangeError);
+  assert.throws(() => buildDeviceCode({ ...ok, amountMinor: 0 }), RangeError);
+  assert.throws(() => buildDeviceCode({ ...ok, deviceShortId: '123' }), RangeError);
+});
+
+test('a code from another window or with a different amount has a different MAC', () => {
+  const base = { ...VECTOR, deviceShortId: '48201937', counter: 42, amountMinor: 250000, merchantShortId: '70011234' };
+  const code = buildDeviceCode(base);
+  assert.notEqual(buildDeviceCode({ ...base, now: base.now + 300 }).slice(30), code.slice(30));
+  assert.notEqual(buildDeviceCode({ ...base, amountMinor: 250001 }).slice(30), code.slice(30));
+  assert.equal(buildDeviceCode({ ...base, now: base.now + 299 }), buildDeviceCode({ ...base, now: base.now + 1 }));
+});
+
+test('dialString joins number, pauses, optional prefix, code and #', () => {
+  assert.equal(dialString('+2347000000001', '123'), '+2347000000001,,,123#');
+  assert.equal(dialString('+2347000000099', '123', '4821'), '+2347000000099,,,4821123#');
+});
+
+test('device endpoints use the right paths', async () => {
+  const client = new Client({ apiKey: 'k', baseUrl: 'https://api.test', fetch: reply(200, {}) });
+  await client.enrolDevice('cust 1', 'install-0001');
+  assert.equal(reply.last.url, 'https://api.test/subscribers/cust%201/devices');
+  assert.deepEqual(JSON.parse(reply.last.init.body), { device_id: 'install-0001' });
+  await client.revokeDevice('cust-1', 'a/b');
+  assert.equal(reply.last.url, 'https://api.test/subscribers/cust-1/devices/a%2Fb');
+  assert.equal(reply.last.init.method, 'DELETE');
+  await client.getMerchant('shop-1');
+  assert.equal(reply.last.url, 'https://api.test/merchants/shop-1');
 });

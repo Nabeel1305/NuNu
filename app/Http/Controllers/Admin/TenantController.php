@@ -78,6 +78,9 @@ class TenantController extends Controller
             'code_ttl_minutes' => ['required', 'integer', 'min:1', 'max:60'],
             'bind_caller' => ['sometimes', 'boolean'],
             'max_amount_minor' => ['nullable', 'integer', 'min:1'],
+            'device_codes_enabled' => ['sometimes', 'boolean'],
+            'device_max_amount_minor' => ['nullable', 'integer', 'min:1'],
+            'device_daily_limit_minor' => ['nullable', 'integer', 'min:1'],
         ]);
 
         // The simulator must never settle a live tenant's money.
@@ -101,7 +104,16 @@ class TenantController extends Controller
             unset($settings['max_amount_minor']);
         }
 
-        $before = $tenant->only(['status', 'environment', 'settlement_adapter', 'voice_mode', 'code_ttl_minutes', 'bind_caller']);
+        // Offline codes built on a phone, with caps because nothing is held when they are built.
+        $device = ['enabled' => $request->boolean('device_codes_enabled')];
+        foreach (['max_amount_minor' => 'device_max_amount_minor', 'daily_limit_minor' => 'device_daily_limit_minor'] as $key => $field) {
+            if (($data[$field] ?? null) !== null) {
+                $device[$key] = (int) $data[$field];
+            }
+        }
+        $settings['device_codes'] = $device;
+
+        $before = $tenant->only(['status', 'environment', 'settlement_adapter', 'voice_mode', 'code_ttl_minutes', 'bind_caller']) + ['device_codes' => $tenant->setting('device_codes')];
 
         $tenant->update([
             'status' => $data['status'],
@@ -113,8 +125,9 @@ class TenantController extends Controller
             'settings' => $settings,
         ]);
 
+        $after = $tenant->fresh()->only(['status', 'environment', 'settlement_adapter', 'voice_mode', 'code_ttl_minutes', 'bind_caller']) + ['device_codes' => $tenant->fresh()->setting('device_codes')];
         $this->audit->record($tenant->id, 'admin.tenant_updated', 'admin', $request->user('admin')->id, Tenant::class, $tenant->id,
-            'Tenant settings changed', ['before' => $before, 'after' => $tenant->only(array_keys($before))]);
+            'Tenant settings changed', ['before' => $before, 'after' => $after]);
 
         return back()->with('status', 'Saved.');
     }

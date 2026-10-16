@@ -3,11 +3,15 @@
 namespace App\Services\Codes;
 
 use App\Models\Merchant;
+use App\Models\OfflineDevice;
 use App\Models\PaymentCode;
 use App\Models\Subscriber;
 use App\Models\Tenant;
 use App\Models\Transaction;
 use App\Services\Audit\AuditLogService;
+use App\Services\Offline\DeviceCodeFormat;
+use App\Services\Offline\DeviceCodeSettings;
+use App\Services\Offline\DeviceKeyService;
 use App\Services\Settlement\AccountRef;
 use App\Services\Settlement\SettlementManager;
 use App\Services\Settlement\SettlementRejected;
@@ -29,6 +33,7 @@ class CodeService
         private readonly AuditLogService $audit,
         private readonly WebhookDispatcher $webhooks,
         private readonly TenantContext $context,
+        private readonly DeviceKeyService $deviceKeys,
     ) {
     }
 
@@ -252,6 +257,21 @@ class CodeService
 
             RateLimiter::hit($tenantKey, 60);
 
+            // A device-signed code is a different shape (40 digits) from an issued one (12, plus a short-code prefix on a shared number).
+            $deviceDigits = $this->deviceDigits($tenant, $this->generator->normalize($rawDigits));
+            if ($deviceDigits !== null) {
+                $outcome = $this->redeemDeviceCode($tenant, $deviceDigits, $callerNumber);
+
+                // Only a code that fails to prove itself counts as a guess; a genuine code that is refused for a limit does not.
+                if (! $outcome->accepted && in_array($outcome->reason, self::GUESS_REASONS, true)) {
+                    RateLimiter::hit($callerKey, $limits['caller_decay_seconds']);
+                } elseif ($outcome->accepted) {
+                    RateLimiter::clear($callerKey);
+                }
+
+                return $outcome;
+            }
+
             $hash = $this->generator->hash($rawDigits);
 
             $claimed = DB::transaction(function () use ($tenant, $hash, $callerNumber) {
@@ -323,6 +343,186 @@ class CodeService
             (string) ($code->destination_bank_code ?? $merchant->bank_code),
             $merchant->account_reference,
         );
+    }
+
+    /** Reasons that mean "this did not prove it came from an enrolled phone", i.e. a possible guess. */
+    private const GUESS_REASONS = ['device_codes_disabled', 'malformed', 'unknown_device', 'bad_signature'];
+
+    /** The 40 digits of a device-signed code, or null when these digits are not one. */
+    private function deviceDigits(Tenant $tenant, string $digits): ?string
+    {
+        if ($tenant->usesSharedNumber()) {
+            return strlen($digits) === 4 + DeviceCodeFormat::LENGTH && str_starts_with($digits, (string) $tenant->short_code)
+                ? substr($digits, 4)
+                : null;
+        }
+
+        return strlen($digits) === DeviceCodeFormat::LENGTH ? $digits : null;
+    }
+
+    /**
+     * Redeem a code a phone built offline. Nothing was held when it was built, so the funds are held and
+     * captured now, one straight after the other, and the caps in DeviceCodeSettings bound the exposure.
+     */
+    private function redeemDeviceCode(Tenant $tenant, string $digits, string $callerNumber): RedeemOutcome
+    {
+        $settings = DeviceCodeSettings::for($tenant);
+        if (! $settings->enabled) {
+            return RedeemOutcome::rejected('device_codes_disabled');
+        }
+
+        $f = DeviceCodeFormat::parse($digits);
+        if ($f === null) {
+            return RedeemOutcome::rejected('malformed');
+        }
+
+        $device = OfflineDevice::where('short_id', $f['device'])->where('status', 'active')->first();
+        $merchant = Merchant::where('short_id', $f['merchant'])->first();
+        $subscriber = $device?->subscriber;
+
+        // Anything unknown looks the same as a wrong signature: no hint which part was wrong.
+        if (! $device || ! $merchant || ! $subscriber || blank($subscriber->account_number) || blank($merchant->account_number)) {
+            return RedeemOutcome::rejected('unknown_device');
+        }
+
+        // The signature covers the account details the server holds, so a code can't be re-pointed.
+        $key = $this->deviceKeys->derive($device);
+        $currency = strtoupper((string) config('platform.device_codes.currency'));
+        $window = DeviceCodeFormat::window(now()->timestamp);
+        $valid = false;
+        foreach ([$window, $window - 1, $window + 1] as $w) {     // no early exit, so timing does not reveal which matched
+            $canonical = DeviceCodeFormat::canonical(
+                $device->short_id, $f['counter'], $f['amount'], $merchant->short_id, $w, $currency,
+                $subscriber->account_number, $subscriber->bank_code, $merchant->account_number, $merchant->bank_code,
+            );
+            $valid = hash_equals(DeviceCodeFormat::mac($key, $canonical), $f['mac']) || $valid;
+        }
+        if (! $valid) {
+            return RedeemOutcome::rejected('bad_signature');
+        }
+
+        // From here the code is genuine: a refusal is reported to the tenant, never to the caller.
+        $refuse = function (string $reason) use ($tenant, $device, $subscriber, $merchant, $f, $currency): RedeemOutcome {
+            $this->audit->record($tenant->id, 'device_code.rejected', 'device', $device->id, OfflineDevice::class, $device->id,
+                "Genuine offline code refused: {$reason}", ['reason' => $reason, 'amount_minor' => $f['amount']], $device->short_id);
+            $this->webhooks->dispatch($tenant, 'code.rejected', [
+                'origin' => 'device', 'reason' => $reason, 'device_id' => $device->device_id,
+                'subscriber_reference' => $subscriber->reference, 'merchant_reference' => $merchant->reference,
+                'amount_minor' => $f['amount'], 'currency' => $currency,
+            ]);
+
+            return RedeemOutcome::rejected($reason);
+        };
+
+        if ($f['amount'] < 1) {
+            return $refuse('amount_invalid');
+        }
+
+        $result = DB::transaction(function () use ($tenant, $device, $subscriber, $merchant, $f, $currency, $settings, $callerNumber, $digits) {
+            // Subscriber first, then device: the subscriber lock also serialises the daily total across their phones.
+            $sub = Subscriber::whereKey($subscriber->id)->lockForUpdate()->first();
+            $dev = OfflineDevice::whereKey($device->id)->lockForUpdate()->first();
+
+            if (! $dev->isActive()) {
+                return ['device_revoked', null];
+            }
+            if ($f['counter'] <= $dev->last_counter) {
+                return ['counter_reused', null];
+            }
+            if ($tenant->bind_caller && ! PhoneNumber::same($sub->phone, $callerNumber)) {
+                return ['caller_mismatch', null];
+            }
+            if ($f['amount'] > $settings->maxAmountMinor) {
+                return ['amount_limit', null];
+            }
+
+            $today = (int) PaymentCode::where('subscriber_id', $sub->id)->where('origin', 'device')
+                ->where('created_at', '>=', now()->startOfDay())
+                ->where('state', '!=', CodeState::Failed->value)->sum('amount_minor');
+            if ($today + $f['amount'] > $settings->dailyLimitMinor) {
+                return ['daily_limit', null];
+            }
+
+            $code = PaymentCode::create([
+                'uuid' => (string) Str::uuid(),
+                'origin' => 'device',
+                'offline_device_id' => $dev->id,
+                'device_counter' => $f['counter'],
+                'device_key_version' => $dev->key_version,
+                'subscriber_id' => $sub->id,
+                'merchant_id' => $merchant->id,
+                'amount_minor' => $f['amount'],
+                'currency' => $currency,
+                'source_account_reference' => $sub->account_number,
+                'source_account_number' => $sub->account_number,
+                'source_bank_code' => $sub->bank_code,
+                'destination_account_number' => $merchant->account_number,
+                'destination_bank_code' => $merchant->bank_code,
+                'code_hash' => $this->generator->hash($digits),
+                'state' => CodeState::Redeemed,
+                'expires_at' => now(),
+                'redeemed_at' => now(),
+                'caller_number' => $callerNumber,
+            ]);
+
+            Transaction::create([
+                'uuid' => (string) Str::uuid(),
+                'payment_code_id' => $code->id,
+                'reference' => 'TXN-' . strtoupper(Str::random(12)),
+                'amount_minor' => $code->amount_minor,
+                'currency' => $code->currency,
+                'status' => 'pending',
+            ]);
+
+            $dev->update(['last_counter' => $f['counter'], 'last_used_at' => now()]);
+
+            $this->audit->record($tenant->id, 'code.redeemed', 'device', $dev->id, PaymentCode::class, $code->id,
+                'Offline code signed by a device redeemed by voice call', ['device' => $dev->short_id, 'counter' => $f['counter']], $code->uuid);
+
+            return [null, $code];
+        }, 3);
+
+        [$reason, $code] = $result;
+        if ($reason !== null) {
+            return $refuse($reason);
+        }
+
+        $code = $code->fresh(['transaction', 'merchant']);
+        $this->webhooks->dispatch($tenant, 'code.redeemed', $this->codeData($code));
+        $this->authoriseAndCapture($tenant, $code);
+
+        return RedeemOutcome::accepted($code);
+    }
+
+    /**
+     * Hold, then capture, for a code that had no hold. Both calls are keyed (the hold by the code's uuid, the capture
+     * by the transaction reference), so a retry after a crash or a lost answer cannot move money twice.
+     */
+    private function authoriseAndCapture(Tenant $tenant, PaymentCode $code): void
+    {
+        $transaction = $code->transaction;
+
+        try {
+            $hold = $this->settlement->for($tenant)->hold(
+                $tenant, $code->uuid,
+                new AccountRef((string) $code->source_account_number, (string) $code->source_bank_code),
+                $code->amount_minor, $code->currency,
+            );
+        } catch (\Throwable $e) {
+            // Outcome unknown: leave it pending for reconciliation to retry.
+            Log::error('Settlement hold did not complete', ['transaction' => $transaction->reference, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        if (! $hold->ok) {
+            $this->finishFailed($tenant, $code, $transaction, $hold->reason ?? 'The hold was rejected.', release: false);
+
+            return;
+        }
+
+        $code->update(['hold_reference' => $hold->reference]);
+        $this->capture($tenant, $code->fresh(['transaction', 'merchant']));
     }
 
     private function capture(Tenant $tenant, PaymentCode $code): void
@@ -441,6 +641,16 @@ class CodeService
                             return;
                         }
 
+                        // A device-signed code whose hold was never recorded cannot have been captured (capture needs the
+                        // hold). Unless the tenant says it is already captured or released, start the hold again: it is keyed
+                        // by the code's uuid, so the tenant answers with the hold it already has.
+                        if ($code->hold_reference === null && ! in_array($status->state, ['captured', 'released'], true)) {
+                            $counts['retried']++;
+                            $this->authoriseAndCapture($tenant, $code);
+
+                            return;
+                        }
+
                         switch ($status->state) {
                             case 'captured':
                                 $this->finishSettled($tenant, $code, $transaction, $status->reference) && $counts['settled']++;
@@ -503,6 +713,7 @@ class CodeService
     {
         return [
             'id' => $code->uuid,
+            'origin' => $code->origin ?? 'issued',
             'state' => $code->state->value,
             'amount_minor' => $code->amount_minor,
             'currency' => $code->currency,
@@ -515,6 +726,7 @@ class CodeService
         return [
             'id' => $transaction->uuid,
             'code_id' => $code->uuid,
+            'origin' => $code->origin ?? 'issued',
             'reference' => $transaction->reference,
             'status' => $transaction->status,
             'amount_minor' => $transaction->amount_minor,

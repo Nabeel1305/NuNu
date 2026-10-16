@@ -24,6 +24,8 @@ After pulling changes, run `php artisan migrate`. A tenant created before the au
 | --- | --- | --- |
 | PUT | `/subscribers/{reference}` | `account_number`, `bank_code` (`phone` optional) |
 | PUT | `/merchants/{reference}` | `name`, `account_number`, `bank_code` (`account_reference` optional) |
+| POST / GET / DELETE | `/subscribers/{reference}/devices[/{deviceId}]` | Enrol a phone for offline codes (returns its key), list, revoke. Needs the feature switched on |
+| GET | `/merchants/{reference}` | Includes the 8-digit `short_id` a phone puts in an offline code |
 | POST | `/webhook-endpoints` | `url` (https), optional `events`; returns the signing `secret` once |
 | POST | `/codes` | needs `Idempotency-Key`; returns the code once |
 | GET | `/codes/{id}` | never includes the code |
@@ -83,3 +85,7 @@ Each tenant's own staff sign in at `/portal` (separate from the operator console
     php artisan tenant-user:reset-2fa person@example.com
 
 Operators can also invite the first owner from the tenant's page in `/admin`. Roles: **owner** (everything, including the team and cancelling codes), **developer** (keys, webhooks, delivery logs; no payment amounts), **viewer** (read-only). Two-factor is required in production, as for operators. Payer phone numbers are masked, and the tenant can change none of the operator-controlled settings (environment, settlement adapter, code lifetime, voice numbers). After pulling, run `php artisan migrate`.
+
+## Offline phone codes
+
+Besides codes the API issues, a subscriber's phone can build a signed 40-digit code with no connection and dial it. Nothing is held when such a code is built, so the platform holds and captures when the call arrives, bounded by caps (`PLATFORM_DEVICE_CODE_MAX_AMOUNT_MINOR`, `PLATFORM_DEVICE_CODE_DAILY_LIMIT_MINOR`). It is **off per tenant** until an operator ticks "Offline codes built on a phone" on the tenant's page. Phones' keys are derived from `PLATFORM_DEVICE_KEY_SECRET` and never stored; set it once, keep it safe, and do not change it while devices are enrolled (it invalidates them). The format is specified in `app/Services/Offline/DeviceCodeFormat.php`, with test vectors in `tests/Unit/DeviceCodeFormatTest.php` and the client libraries. A tenant's settlement adapter must make `hold` idempotent on the code's uuid and `capture` idempotent on the transaction reference. After pulling, run `php artisan migrate`.

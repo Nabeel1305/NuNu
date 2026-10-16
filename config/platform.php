@@ -23,6 +23,19 @@ return [
         'bank_code_pattern' => env('PLATFORM_BANK_CODE_PATTERN', '^[A-Za-z0-9]{3,10}$'),
     ],
 
+    // Device-signed offline codes. Nothing is reserved when such a code is built (the phone has no
+    // connection), so the money is only checked when the call arrives; these caps limit the exposure.
+    // Each tenant can override them (and must be switched on) in the operator console.
+    'device_codes' => [
+        'max_amount_minor' => (int) env('PLATFORM_DEVICE_CODE_MAX_AMOUNT_MINOR', 2_000_000),      // ₦20,000 per payment
+        'daily_limit_minor' => (int) env('PLATFORM_DEVICE_CODE_DAILY_LIMIT_MINOR', 5_000_000),    // ₦50,000 per subscriber per day
+        'max_devices_per_subscriber' => (int) env('PLATFORM_DEVICE_CODE_MAX_DEVICES', 5),
+        'currency' => env('PLATFORM_DEVICE_CODE_CURRENCY', 'NGN'),
+    ],
+
+    // Root secret the phones' keys are derived from. Set it once, keep it in a secret manager, never lose it.
+    'device_key_secret' => env('PLATFORM_DEVICE_KEY_SECRET', ''),
+
     // Country code assumed for phone numbers written without one.
     'default_country_code' => env('PLATFORM_DEFAULT_COUNTRY_CODE', '234'),
 

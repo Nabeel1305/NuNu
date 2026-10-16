@@ -40,6 +40,15 @@ The response includes `code`. It is not stored in readable form and cannot be fe
 
 `amount_minor` is in the smallest unit (kobo for NGN), so `250000` is ₦2,500.00.
 
+## Offline phone codes (optional)
+
+If your customers must be able to start a payment with no connection at all, enrol their phone and let it build the code itself. The format and the signature are specified in `app/Services/Offline/DeviceCodeFormat.php`; the client libraries have reference builders.
+
+    POST /subscribers/cust-42/devices   {"device_id": "<your installation id>"}   -> device_key, short_id, last_counter
+    GET  /merchants/shop-7                                                       -> short_id, account_number, bank_code (put these in the merchant's QR)
+
+The phone signs `amount`, `merchant`, a counter and a time window together with both accounts' details, and dials the 40 digits. We verify it, then hold and capture in one step, so your `hold` must be idempotent on the code's id. Nothing is reserved while the phone is offline: the caps on the account bound your exposure, and `code.rejected` tells you when a genuine code was refused. Off by default; ask the platform operator to enable it.
+
 ## Handle webhooks
 
 Every delivery carries `Offline-Signature: t=<seconds>,v1=<hex>`. Verify it before trusting the body:
@@ -56,6 +65,7 @@ The client libraries do this for you. Answer with any `2xx`. Anything else, or n
 | `transaction.settled` | Your system captured the funds | Transaction |
 | `transaction.failed` | Capture was declined, or you reported the hold released | Transaction |
 | `code.expired` | The code reached its deadline unused | Code |
+| `code.rejected` | A genuine offline phone code was refused (limit, reused counter, caller mismatch) | Rejection |
 
 ## States
 

@@ -20,6 +20,7 @@
 <div class="card" style="max-width:780px">
     <div class="card-body">
         <dl class="dl">
+            <dt>Origin</dt><dd>{{ $code->origin === 'device' ? 'Built on a phone, offline' : 'Issued by your system' }}</dd>
             <dt>State</dt><dd>@include('portal._badge', ['value' => $code->state->value])</dd>
             <dt>Amount</dt><dd class="tabular">{{ Money::format($code->amount_minor, $code->currency) }}</dd>
             <dt>Merchant</dt><dd>{{ $code->merchant?->name }} <span class="text-muted">({{ $code->merchant?->reference }})</span></dd>

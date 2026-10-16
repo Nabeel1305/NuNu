@@ -9,7 +9,7 @@ class WebhookEndpoint extends Model
 {
     use BelongsToTenant;
 
-    public const EVENTS = ['code.redeemed', 'transaction.settled', 'transaction.failed', 'code.expired'];
+    public const EVENTS = ['code.redeemed', 'transaction.settled', 'transaction.failed', 'code.expired', 'code.rejected'];
 
     protected $guarded = [];
 

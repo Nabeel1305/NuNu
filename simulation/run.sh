@@ -20,7 +20,7 @@ export PHP_BIN="${PHP_BIN:-php}"
 export APP_ENV=local
 export PLATFORM_ALLOW_PRIVATE_WEBHOOK_URLS=true PLATFORM_WEBHOOK_BACKOFF=1,2,3
 # The simulation hammers one tenant; real limits are covered by the tests.
-export PLATFORM_REDEEM_TENANT_PER_MINUTE=100000 PLATFORM_API_PER_MINUTE=100000
+export PLATFORM_REDEEM_TENANT_PER_MINUTE=100000 PLATFORM_REDEEM_UNKNOWN_PER_MINUTE=100000 PLATFORM_API_PER_MINUTE=100000
 export SIM_CREDS="$PWD/storage/app/simulation.json" SIM_EVENTS="$PWD/storage/app/simulation-events.jsonl"
 
 if [ "${SIM_DB:-sqlite}" = "mysql" ]; then

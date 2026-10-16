@@ -16,7 +16,7 @@
     @else
         @if ($required)<p class="badge-warning-soft mb-3">This deployment requires two-factor authentication. Finish setup to use the dashboard.</p>@endif
         <p><strong>1.</strong> Add this account to an authenticator app (Google Authenticator, 1Password, Authy and others all work). Enter this key by hand:</p>
-        <div class="card secret-card mb-3"><div class="card-body py-2"><code style="margin:0">{{ chunk_split($secret, 4, ' ') }}</code></div></div>
+        <div class="card secret-card compact mb-3"><div class="card-body py-2"><code>{{ chunk_split($secret, 4, ' ') }}</code></div></div>
         <p class="text-muted">Or open this address on the phone that has the app: <code style="word-break:break-all">{{ $uri }}</code></p>
         <p><strong>2.</strong> Enter the 6-digit code the app now shows, to prove it works.</p>
         <form method="post" action="{{ route('admin.security.confirm') }}" style="max-width:280px">

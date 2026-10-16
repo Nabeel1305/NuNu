@@ -19,6 +19,7 @@ class SettingsController extends Controller
         return view('portal.settings', [
             'numbers' => VoiceNumber::where('tenant_id', $tenant->id)->orderBy('number')->get(),
             'maxAmount' => $max ? Money::format($max, 'NGN') : null,
+            'deviceCodes' => \App\Services\Offline\DeviceCodeSettings::for($tenant),
             'apiBase' => url('/api/v1'),
         ]);
     }

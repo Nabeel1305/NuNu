@@ -6,11 +6,13 @@
 require __DIR__ . '/../clients/php/src/ApiException.php';
 require __DIR__ . '/../clients/php/src/Webhook.php';
 require __DIR__ . '/../clients/php/src/Client.php';
+require __DIR__ . '/../clients/php/src/DeviceCode.php';
 require __DIR__ . '/../app/Services/Auth/Totp.php';
 
 use OfflinePayments\ApiException;
 use App\Services\Auth\Totp;
 use OfflinePayments\Client;
+use OfflinePayments\DeviceCode;
 
 $root = dirname(__DIR__);
 $base = 'http://127.0.0.1:8099';
@@ -587,6 +589,147 @@ if ($driver === 'mysql') {
     section('17. Concurrency on real row locks');
     echo "  skip  needs MySQL (SQLite has no row locks); run with SIM_DB=mysql\n";
 }
+
+// ---------------------------------------------------------------------------
+section('18. Offline phone codes: built on the phone, dialled with no data');
+$tid = $tenants[$bank]['id'];
+$deviceCodes = fn (array $extra = []) => ['device_codes' => array_merge(['enabled' => true, 'max_amount_minor' => 1_000_000, 'daily_limit_minor' => 50_000_000], $extra)];
+
+// Off by default: enrolment is refused until an operator switches it on for the tenant.
+setSettings($bank, null);
+$refused = false;
+try { client($bank)->enrolDevice('sub-1', 'sim-install-disabled'); } catch (ApiException $e) { $refused = $e->status === 403 && $e->errorCode === 'device_codes_disabled'; }
+check('enrolment is refused while the feature is off', $refused);
+
+setSettings($bank, $deviceCodes());
+$dev = client($bank)->enrolDevice('sub-1', 'sim-install-' . bin2hex(random_bytes(4)));
+$mer = client($bank)->getMerchant('shop-1');
+$issuedCodes[] = $dev['device_key'];                         // a secret that must never end up in any table
+check('enrolment returns an 8-digit short id and a 32-byte key', (bool) preg_match('/^\d{8}$/', $dev['short_id']) && strlen(base64_decode($dev['device_key'])) === 32);
+check('the merchant has an 8-digit short id for the phone to scan', (bool) preg_match('/^\d{8}$/', $mer['short_id']));
+$acct = q('SELECT account_number, bank_code FROM subscribers WHERE tenant_id = ? AND reference = ?', [$tid, 'sub-1'])[0];
+$ctr = (int) $dev['last_counter'];
+$build = function (int $amount = 250000, ?int $counter = null) use (&$dev, $mer, $acct, &$ctr) {
+    $n = $counter ?? ++$ctr;
+
+    return DeviceCode::build($dev['device_key'], $dev['short_id'], $n, $amount, $mer['short_id'],
+        ['accountNumber' => $acct['account_number'], 'bankCode' => $acct['bank_code']], ['accountNumber' => $mer['account_number'], 'bankCode' => $mer['bank_code']]);
+};
+$deviceTx = fn () => q("SELECT t.status, t.failure_reason, p.uuid, p.origin, p.device_counter, p.amount_minor FROM transactions t JOIN payment_codes p ON p.id = t.payment_code_id WHERE p.origin = 'device' AND p.tenant_id = ? ORDER BY t.id DESC LIMIT 1", [$tid])[0] ?? null;
+$deviceCount = fn () => (int) q("SELECT COUNT(*) c FROM payment_codes WHERE origin = 'device' AND tenant_id = ?", [$tid])[0]['c'];
+$rejections = fn (string $reason) => array_values(array_filter(events(), fn ($e) => $e['tenant'] === $bank && ($e['event']['type'] ?? '') === 'code.rejected' && ($e['event']['data']['reason'] ?? '') === $reason));
+
+// Happy path.
+$d1 = $build(250000);
+check('the code is 40 digits', strlen($d1) === 40);
+$issuedCodes[] = $d1;
+[$status, $body] = dialTenant($bank, $d1, $bankPhone);
+check('the call gets the same generic thank-you', $status === 200 && str_contains($body, 'Thank you'));
+$tx = waitFor(fn () => ($t = $deviceTx()) && $t['status'] === 'settled' ? $t : null);
+check('the phone-built code settles', (bool) $tx && $tx['origin'] === 'device' && (int) $tx['amount_minor'] === 250000);
+$settledEv = waitFor(fn () => eventsFor($bank, 'transaction.settled', $tx['uuid'] ?? 'x'));
+$redeemedEv = waitFor(fn () => eventsFor($bank, 'code.redeemed', $tx['uuid'] ?? 'x'));
+check('webhooks arrive, verified, and say origin=device', $settledEv && $redeemedEv && $settledEv[0]['valid'] && $redeemedEv[0]['valid'] && ($settledEv[0]['event']['data']['origin'] ?? '') === 'device');
+$held = q("SELECT source_account_number, source_bank_code, destination_account_number, destination_bank_code, hold_reference FROM payment_codes WHERE uuid = ?", [$tx['uuid'] ?? ''])[0] ?? [];
+check('the subscriber\'s and the merchant\'s accounts were frozen on the code', ($held['source_account_number'] ?? '') === $acct['account_number'] && ($held['destination_account_number'] ?? '') === $mer['account_number'] && ! empty($held['hold_reference']));
+
+// A code works once.
+$before = $deviceCount();
+dialTenant($bank, $d1, $bankPhone);
+dialTenant($bank, $d1, $bankPhone);
+check('dialling the same code again makes no second payment', $deviceCount() === $before);
+check('the tenant is told a genuine reused code was refused', (bool) waitFor(fn () => $rejections('counter_reused')));
+
+// Tampering and wrong keys.
+$good = $build(1000);
+$tampered = substr($good, 0, 14) . '00999999' . substr($good, 22);
+dialTenant($bank, $tampered, $bankPhone);
+check('a code with an altered amount is ignored', $deviceCount() === $before);
+$other = DeviceCode::build(base64_encode(random_bytes(32)), $dev['short_id'], $ctr, 1000, $mer['short_id'],
+    ['accountNumber' => $acct['account_number'], 'bankCode' => $acct['bank_code']], ['accountNumber' => $mer['account_number'], 'bankCode' => $mer['bank_code']]);
+dialTenant($bank, $other, $bankPhone);
+check('a code signed with another key is ignored', $deviceCount() === $before);
+dialTenant($bank, $good, $bankPhone);
+check('the untouched code still works afterwards', (bool) waitFor(fn () => ($t = $deviceTx()) && (int) $t['amount_minor'] === 1000 && $t['status'] === 'settled'));
+$before = $deviceCount();
+
+// Caps, and caller binding (Demo Bank only accepts codes from the subscriber's own number).
+$big = $build(1_000_001);
+dialTenant($bank, $big, $bankPhone);
+check('a code above the per-payment cap is refused', $deviceCount() === $before);
+check('the tenant is told why (code.rejected / amount_limit)', (bool) waitFor(fn () => $rejections('amount_limit')));
+$stranger = $build(2000);
+dialTenant($bank, $stranger, '+2348099990000');
+check('a valid code dialled from another number is refused (caller binding)', $deviceCount() === $before);
+check('the tenant is told (code.rejected / caller_mismatch)', (bool) waitFor(fn () => $rejections('caller_mismatch')));
+dialTenant($bank, $stranger, $bankPhone);
+check('the same code then works from the subscriber\'s own number (the refusal did not burn it)', (bool) waitFor(fn () => $deviceCount() === $before + 1));
+$before = $deviceCount();
+
+// The tenant's own system says no: hold declined.
+setSettings($bank, $deviceCodes() + ['sandbox' => ['fail_hold' => true]]);
+dialTenant($bank, $build(3000), $bankPhone);
+$declined = waitFor(fn () => ($t = $deviceTx()) && $t['status'] === 'failed' && (int) $t['amount_minor'] === 3000 ? $t : null);
+check('a declined hold fails the payment with the tenant\'s reason', (bool) $declined && str_contains((string) $declined['failure_reason'], 'Insufficient'));
+check('transaction.failed webhook arrived for it', (bool) waitFor(fn () => eventsFor($bank, 'transaction.failed', $declined['uuid'] ?? 'x')));
+setSettings($bank, $deviceCodes());
+$before = $deviceCount();
+
+// Concurrency: many dials at once.
+if ($driver === 'mysql') {
+    $one = $build(4000);
+    $res = multi(array_map(fn () => dialRequest($bank, $one, $bankPhone), range(1, 12)));
+    check('twelve simultaneous dials of one code: no server error', count(array_filter($res, fn ($r) => $r[0] !== 200)) === 0);
+    check('twelve simultaneous dials of one code make exactly one payment', waitFor(fn () => $deviceCount() === $before + 1) === true && $deviceCount() === $before + 1);
+    $before = $deviceCount();
+
+    $first = $ctr + 1;
+    $batch = [];
+    foreach (range(1, 10) as $i) { $batch[] = $build(1500, $first + $i - 1); }
+    $ctr = $first + 9;
+    multi(array_map(fn ($c) => dialRequest($bank, $c, $bankPhone), $batch));
+    usleep(1_500_000);
+    $accepted = q("SELECT device_counter FROM payment_codes WHERE origin = 'device' AND tenant_id = ? AND device_counter >= ? ORDER BY device_counter", [$tid, $first]);
+    $nums = array_map(fn ($r) => (int) $r['device_counter'], $accepted);
+    $last = (int) q('SELECT last_counter FROM offline_devices WHERE tenant_id = ? AND short_id = ?', [$tid, $dev['short_id']])[0]['last_counter'];
+    check('ten codes with different counters arriving together: none accepted twice', count($nums) === count(array_unique($nums)));
+    check('the device\'s counter ends at the highest one accepted', $nums !== [] && $last === max($nums));
+    waitFor(fn () => (int) q("SELECT COUNT(*) c FROM transactions t JOIN payment_codes p ON p.id = t.payment_code_id WHERE p.origin = 'device' AND p.tenant_id = ? AND t.status = 'pending'", [$tid])[0]['c'] === 0, 25);
+    check('every accepted code settled', (int) q("SELECT COUNT(*) c FROM transactions t JOIN payment_codes p ON p.id = t.payment_code_id WHERE p.origin = 'device' AND p.tenant_id = ? AND t.status = 'pending'", [$tid])[0]['c'] === 0);
+}
+
+// Daily total.
+$spent = (int) q("SELECT COALESCE(SUM(amount_minor), 0) s FROM payment_codes WHERE origin = 'device' AND subscriber_id = (SELECT id FROM subscribers WHERE tenant_id = ? AND reference = 'sub-1') AND state != 'failed' AND created_at >= ?", [$tid, date('Y-m-d 00:00:00')])[0]['s'];
+setSettings($bank, $deviceCodes(['daily_limit_minor' => $spent + 500_000]));
+$before = $deviceCount();
+dialTenant($bank, $build(600_000), $bankPhone);
+check('a payment that would pass the daily total is refused', $deviceCount() === $before);
+check('the tenant is told (code.rejected / daily_limit)', (bool) waitFor(fn () => $rejections('daily_limit')));
+dialTenant($bank, $build(400_000), $bankPhone);
+check('a smaller one inside the daily total is accepted', (bool) waitFor(fn () => $deviceCount() === $before + 1));
+$before = $deviceCount();
+
+// Revoking a phone, and a new key after re-enrolling.
+client($bank)->revokeDevice('sub-1', $dev['device_id'] ?? '');
+dialTenant($bank, $build(1000), $bankPhone);
+check('a revoked phone is ignored at once', $deviceCount() === $before);
+$old = $dev;
+$dev = client($bank)->enrolDevice('sub-1', $old['device_id']);
+$issuedCodes[] = $dev['device_key'];
+$ctr = (int) $dev['last_counter'];
+check('re-enrolling gives a new key and restarts the counter', $dev['device_key'] !== $old['device_key'] && $dev['key_version'] === $old['key_version'] + 1 && $dev['last_counter'] === 0);
+dialTenant($bank, DeviceCode::build($old['device_key'], $dev['short_id'], 1, 1000, $mer['short_id'], ['accountNumber' => $acct['account_number'], 'bankCode' => $acct['bank_code']], ['accountNumber' => $mer['account_number'], 'bankCode' => $mer['bank_code']]), $bankPhone);
+check('a code signed with the old key is worthless', $deviceCount() === $before);
+dialTenant($bank, $build(1000), $bankPhone);
+check('a code signed with the new key works', (bool) waitFor(fn () => $deviceCount() === $before + 1));
+
+// Another tenant's phones cannot be used here, and issued codes keep working beside phone codes.
+$issuedBeside = issue($bank, ['amount_minor' => 5000]);
+dialTenant($bank, $issuedBeside['code'], $bankPhone);
+check('an issued code still works beside phone codes', client($bank)->getCode($issuedBeside['id'])['state'] === 'settled');
+[$ac, $aout] = artisan('audit:verify');
+check('the audit chains are still intact after all of it', $ac === 0, $aout);
+setSettings($bank, null);
 
 // ---------------------------------------------------------------------------
 section('16. Invariants across the whole run');

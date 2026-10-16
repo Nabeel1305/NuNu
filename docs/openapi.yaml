@@ -31,6 +31,12 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Subscriber' } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
   /merchants/{reference}:
+    get:
+      summary: Read a merchant (including the short id used in offline phone codes)
+      parameters: [{ $ref: '#/components/parameters/reference' }]
+      responses:
+        '200': { description: The merchant, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
       summary: Register or update a payee
       parameters: [{ $ref: '#/components/parameters/reference' }]
@@ -50,6 +56,45 @@ paths:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Merchant' } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /subscribers/{reference}/devices:
+    post:
+      summary: Enrol a phone for offline payment codes
+      description: |
+        Lets the subscriber's phone build signed 40-digit codes with no connection. Needs the feature switched on
+        for the account (403 device_codes_disabled otherwise) and a subscriber with a bank account on file.
+        Returns the phone's secret key; it is derived, not stored, so repeating the call returns the same key.
+      parameters: [{ $ref: '#/components/parameters/reference' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id]
+              properties:
+                device_id: { type: string, minLength: 8, maxLength: 191, description: Your identifier for this installation of your app. }
+      responses:
+        '201': { description: Enrolled, content: { application/json: { schema: { $ref: '#/components/schemas/EnrolledDevice' } } } }
+        '200': { description: Already enrolled; same key returned, content: { application/json: { schema: { $ref: '#/components/schemas/EnrolledDevice' } } } }
+        '403': { description: Feature not enabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    get:
+      summary: List a subscriber's devices (never includes keys)
+      parameters: [{ $ref: '#/components/parameters/reference' }]
+      responses:
+        '200': { description: The devices, content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Device' } } } } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /subscribers/{reference}/devices/{deviceId}:
+    delete:
+      summary: Revoke a phone
+      description: Takes effect immediately. Re-enrolling the same device_id later issues a new key and resets the counter.
+      parameters:
+        - { $ref: '#/components/parameters/reference' }
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Revoked, content: { application/json: { schema: { $ref: '#/components/schemas/Device' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
   /webhook-endpoints:
     post:
       summary: Register a webhook endpoint
@@ -177,12 +222,31 @@ components:
           properties:
             code: { type: string, examples: [settlement_rejected] }
             message: { type: string }
+    Device:
+      type: object
+      properties:
+        device_id: { type: string }
+        short_id: { type: string, description: 8 digits; what the phone puts in every code. }
+        subscriber_reference: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        key_version: { type: integer }
+        last_counter: { type: integer, description: Highest counter accepted; the phone resumes from this + 1. }
+        last_used_at: { type: [string, 'null'], format: date-time }
+    EnrolledDevice:
+      allOf:
+        - { $ref: '#/components/schemas/Device' }
+        - type: object
+          properties:
+            device_key: { type: string, description: 'Base64 of the 32-byte secret key. Store it in secure hardware; never log it.' }
+            currency: { type: string, examples: [NGN] }
+            code_length: { type: integer, examples: [40] }
+            window_seconds: { type: integer, examples: [300] }
     Subscriber:
       type: object
       properties: { reference: { type: string }, phone: { type: [string, 'null'] }, account_number: { type: string }, bank_code: { type: string } }
     Merchant:
       type: object
-      properties: { reference: { type: string }, name: { type: string }, account_number: { type: string }, bank_code: { type: string }, account_reference: { type: [string, 'null'] } }
+      properties: { reference: { type: string }, short_id: { type: string, description: 8 digits; what a phone puts in an offline code. Never changes. }, name: { type: string }, account_number: { type: string }, bank_code: { type: string }, account_reference: { type: [string, 'null'] } }
     CodeState:
       type: string
       enum: [issued, redeemed, settled, failed, cancelled, expired]
@@ -218,11 +282,11 @@ components:
         failure_reason: { type: [string, 'null'] }
     EventType:
       type: string
-      enum: [code.redeemed, transaction.settled, transaction.failed, code.expired]
+      enum: [code.redeemed, transaction.settled, transaction.failed, code.expired, code.rejected]
     Event:
       type: object
       properties:
         id: { type: string, format: uuid }
         type: { $ref: '#/components/schemas/EventType' }
         created_at: { type: string, format: date-time }
-        data: { type: object, description: A Code for code.* events, a Transaction for transaction.* events. }
+        data: { type: object, description: 'A Code for code.redeemed and code.expired, a Transaction for transaction.* events, and a rejection object (origin, reason, device_id, subscriber_reference, merchant_reference, amount_minor, currency) for code.rejected. Codes and transactions carry origin: issued or device.' }

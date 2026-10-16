@@ -17,6 +17,7 @@
         <dt>Code lifetime</dt><dd>{{ $tenant->code_ttl_minutes }} minutes</dd>
         <dt>Caller check</dt><dd>{{ $tenant->bind_caller ? 'Code only works from the payer\'s registered phone number' : 'Off: the code alone authorises the payment' }}</dd>
         <dt>Largest payment</dt><dd>{{ $maxAmount ?? 'No limit set' }}</dd>
+        <dt>Offline phone codes</dt><dd>@if($deviceCodes->enabled)<span class="badge-success-soft">on</span> <span class="kv">up to {{ \App\Support\Money::format($deviceCodes->maxAmountMinor, 'NGN') }} each, {{ \App\Support\Money::format($deviceCodes->dailyLimitMinor, 'NGN') }} a day per subscriber</span>@else<span class="badge-theme">off</span>@endif</dd>
         <dt>Voice mode</dt><dd>{{ $tenant->voice_mode === 'shared' ? 'Shared number (codes start with ' . $tenant->short_code . ')' : 'Your own number' }}</dd>
     </dl></div></div></div>
 </div>

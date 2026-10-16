@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\CodeController;
+use App\Http\Controllers\Api\V1\DeviceController;
 use App\Http\Controllers\Api\V1\MerchantController;
 use App\Http\Controllers\Api\V1\SubscriberController;
 use App\Http\Controllers\Api\V1\TransactionController;
@@ -17,8 +18,14 @@ Route::prefix('v1')->middleware([AuthenticateTenant::class, 'throttle:tenant-api
 
     Route::get('transactions/{uuid}', [TransactionController::class, 'show']);
 
+    Route::get('merchants/{reference}', [MerchantController::class, 'show']);
     Route::put('merchants/{reference}', [MerchantController::class, 'upsert']);
     Route::put('subscribers/{reference}', [SubscriberController::class, 'upsert']);
+
+    // Phones that may build offline payment codes for a subscriber.
+    Route::post('subscribers/{reference}/devices', [DeviceController::class, 'store']);
+    Route::get('subscribers/{reference}/devices', [DeviceController::class, 'index']);
+    Route::delete('subscribers/{reference}/devices/{deviceId}', [DeviceController::class, 'destroy']);
 
     Route::post('webhook-endpoints', [WebhookEndpointController::class, 'store']);
 });

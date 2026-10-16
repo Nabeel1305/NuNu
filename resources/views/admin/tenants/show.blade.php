@@ -35,6 +35,16 @@
                 <div class="col-md-4"><label class="form-label" for="code_ttl_minutes">Code lifetime (minutes)</label><input id="code_ttl_minutes" name="code_ttl_minutes" type="number" min="1" max="60" class="form-control" value="{{ old('code_ttl_minutes',$tenant->code_ttl_minutes) }}"></div>
                 <div class="col-md-4"><label class="form-label" for="max_amount_minor">Max amount (minor units, optional)</label><input id="max_amount_minor" name="max_amount_minor" type="number" min="1" class="form-control" value="{{ old('max_amount_minor',$tenant->setting('max_amount_minor')) }}"></div>
             </div>
+            <h6 class="fw-bold mt-4 mb-2">Offline codes built on a phone</h6>
+            <p class="text-muted" style="font-size:12.5px">Lets the tenant's app enrol phones that build payment codes with no connection. Nothing is held when such a code is built, so the funds are checked when the call arrives: keep the caps low.</p>
+            <div class="row g-3">
+                <div class="col-12"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="device_codes_enabled" value="1" id="device_codes_enabled" @checked(old('device_codes_enabled', $tenant->setting('device_codes.enabled', false)))>
+                    <label class="form-check-label" for="device_codes_enabled">Enabled for this tenant</label>
+                </div></div>
+                <div class="col-md-6"><label class="form-label" for="device_max_amount_minor">Largest payment (minor units, blank = platform default)</label><input id="device_max_amount_minor" name="device_max_amount_minor" type="number" min="1" class="form-control" value="{{ old('device_max_amount_minor', $tenant->setting('device_codes.max_amount_minor')) }}"></div>
+                <div class="col-md-6"><label class="form-label" for="device_daily_limit_minor">Daily total per subscriber (minor units, blank = platform default)</label><input id="device_daily_limit_minor" name="device_daily_limit_minor" type="number" min="1" class="form-control" value="{{ old('device_daily_limit_minor', $tenant->setting('device_codes.daily_limit_minor')) }}"></div>
+            </div>
             <div class="form-check mt-3">
                 <input class="form-check-input" type="checkbox" name="bind_caller" value="1" id="bind_caller" @checked(old('bind_caller',$tenant->bind_caller))>
                 <label class="form-check-label" for="bind_caller">Only accept a code from the payer's registered phone number</label>

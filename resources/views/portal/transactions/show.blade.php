@@ -19,6 +19,7 @@
             <div class="card-body">
                 <dl class="dl">
                     <dt>Transaction id</dt><dd><code>{{ $transaction->uuid }}</code></dd>
+                    <dt>Origin</dt><dd>{{ $code->origin === 'device' ? 'Built on a phone, offline' : 'Issued by your system' }}</dd>
                     <dt>Status</dt><dd>@include('portal._badge', ['value' => $transaction->status])</dd>
                     <dt>Amount</dt><dd class="tabular">{{ Money::format($transaction->amount_minor, $transaction->currency) }}</dd>
                     <dt>Merchant</dt><dd>{{ $code->merchant?->name }} <span class="text-muted">({{ $code->merchant?->reference }})</span><div class="kv">Credits account {{ Mask::account($code->destination_account_number ?? $code->merchant?->account_number) }} · bank {{ $code->destination_bank_code ?? $code->merchant?->bank_code }}</div></dd>
