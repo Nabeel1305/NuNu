@@ -34,6 +34,11 @@ class PaymentCode extends Model
         return $this->belongsTo(Merchant::class);
     }
 
+    public function offlineDevice(): BelongsTo
+    {
+        return $this->belongsTo(OfflineDevice::class);
+    }
+
     public function transaction(): HasOne
     {
         return $this->hasOne(Transaction::class);

@@ -497,4 +497,52 @@ class DeviceCodesTest extends TestCase
 
         $this->assertSame(0, $this->txCount($other));
     }
+
+    public function test_codes_and_transactions_say_whose_payment_they_are_about(): void
+    {
+        [$tenant, $key, $token, $w] = $this->world(['voice_mode' => 'own']);
+        $issued = $this->issueCode($key);
+
+        $this->assertSame('sub-1', $issued->json('subscriber_reference'));
+        $this->assertSame('shop-1', $issued->json('merchant_reference'));
+        $this->assertNull($issued->json('device_id'));      // issued by API, not built by a phone
+        $this->assertNull($issued->json('device_counter'));
+
+        // an offline code: the redemption webhook and the transaction both name the payer and the payee
+        $this->withToken($key)->postJson('/api/v1/webhook-endpoints', ['url' => 'https://hooks.example.test/h'])->assertCreated();
+        $this->dial(self::NUMBER, $token, $this->code($w, 1, 150000));
+
+        $events = WebhookDelivery::withoutGlobalScopes()->whereIn('event_type', ['code.redeemed', 'transaction.settled'])->get();
+        $this->assertCount(2, $events);
+        foreach ($events as $event) {
+            $this->assertSame('sub-1', $event->payload['data']['subscriber_reference'], $event->event_type);
+            $this->assertSame('shop-1', $event->payload['data']['merchant_reference'], $event->event_type);
+            $this->assertSame('device', $event->payload['data']['origin'], $event->event_type);
+            // the phone built this one with counter 1: it can find its own payment by device and counter
+            $this->assertSame('install-0001', $event->payload['data']['device_id'], $event->event_type);
+            $this->assertSame(1, $event->payload['data']['device_counter'], $event->event_type);
+        }
+
+        $uuid = Transaction::withoutGlobalScopes()->latest('id')->value('uuid');
+        $this->withToken($key)->getJson("/api/v1/transactions/{$uuid}")
+            ->assertOk()->assertJson(['subscriber_reference' => 'sub-1', 'merchant_reference' => 'shop-1', 'origin' => 'device']);
+    }
+
+    public function test_enrolment_tells_the_phone_which_number_to_ring(): void
+    {
+        [$tenant, $key] = $this->world(['voice_mode' => 'own']);
+
+        $own = $this->withToken($key)->postJson('/api/v1/subscribers/sub-1/devices', ['device_id' => 'install-0001']);
+        $this->assertSame(self::NUMBER, $own->json('voice_number'));
+        $this->assertSame('', $own->json('dial_prefix'));
+        $this->assertSame(2_000_000, $own->json('max_amount_minor'));      // the platform defaults
+        $this->assertSame(5_000_000, $own->json('daily_limit_minor'));
+
+        [$shared, $sharedKey] = $this->makeTenant(['voice_mode' => 'shared', 'settings' => ['device_codes' => ['enabled' => true]]]);
+        $this->seedParties($shared);
+        $this->makeVoiceNumber('+2347000000099');
+        $res = $this->withToken($sharedKey)->postJson('/api/v1/subscribers/sub-1/devices', ['device_id' => 'install-0002']);
+        $this->assertSame('+2347000000099', $res->json('voice_number'));
+        $this->assertSame((string) $shared->short_code, $res->json('dial_prefix'));
+    }
 }

@@ -72,13 +72,13 @@ class CodeController extends Controller
             return ['voice_number' => null, 'dial_string' => null, 'dial_uri' => null];
         }
 
-        $dial = $number . ',,,' . $plainCode . '#';
+        $dial = $number . ',,' . $plainCode . '#';
 
         return [
             'voice_number' => $number,
             'dial_string' => $dial,
             // In a tel: link "#" must be percent-encoded or most phones drop it.
-            'dial_uri' => 'tel:' . $number . ',,,' . $plainCode . '%23',
+            'dial_uri' => 'tel:' . $number . ',,' . $plainCode . '%23',
         ];
     }
 

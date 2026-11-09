@@ -52,6 +52,6 @@ final class DeviceCode
     /** Number, pauses, code and "#". On a shared voice number pass the tenant's 4-digit short code as $prefix. */
     public static function dialString(string $voiceNumber, string $code, string $prefix = ''): string
     {
-        return $voiceNumber . ',,,' . $prefix . $code . '#';
+        return $voiceNumber . ',,' . $prefix . $code . '#';
     }
 }

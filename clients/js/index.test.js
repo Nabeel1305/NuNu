@@ -104,8 +104,8 @@ test('a code from another window or with a different amount has a different MAC'
 });
 
 test('dialString joins number, pauses, optional prefix, code and #', () => {
-  assert.equal(dialString('+2347000000001', '123'), '+2347000000001,,,123#');
-  assert.equal(dialString('+2347000000099', '123', '4821'), '+2347000000099,,,4821123#');
+  assert.equal(dialString('+2347000000001', '123'), '+2347000000001,,123#');
+  assert.equal(dialString('+2347000000099', '123', '4821'), '+2347000000099,,4821123#');
 });
 
 test('device endpoints use the right paths', async () => {

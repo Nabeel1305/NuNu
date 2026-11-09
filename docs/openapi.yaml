@@ -241,6 +241,10 @@ components:
             currency: { type: string, examples: [NGN] }
             code_length: { type: integer, examples: [40] }
             window_seconds: { type: integer, examples: [300] }
+            voice_number: { type: [string, 'null'], description: 'The number the phone rings (E.164), so it needs no connection to know it. Null until one is set up.', examples: ['+2347000000001'] }
+            max_amount_minor: { type: integer, description: 'The most one offline payment can be, in kobo, so the phone can refuse a larger one before dialling.', examples: [2000000] }
+            daily_limit_minor: { type: integer, description: 'The most a subscriber can pay offline in a day, in kobo.', examples: [5000000] }
+            dial_prefix: { type: string, description: 'On a shared voice number, the 4-digit short code that goes in front of the 40 digits; empty on your own number.', examples: ['1001'] }
     Subscriber:
       type: object
       properties: { reference: { type: string }, phone: { type: [string, 'null'] }, account_number: { type: string }, bank_code: { type: string } }
@@ -254,6 +258,11 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
+        origin: { type: string, enum: [issued, device] }
+        subscriber_reference: { type: [string, 'null'], description: Your reference for the payer. }
+        merchant_reference: { type: [string, 'null'], description: Your reference for the payee. }
+        device_id: { type: [string, 'null'], description: 'For a code a phone built offline: the device_id it was enrolled with. Null otherwise.' }
+        device_counter: { type: [integer, 'null'], description: 'For a code a phone built offline: the counter the phone put in it, so the phone can find its own payment. Null otherwise.' }
         state: { $ref: '#/components/schemas/CodeState' }
         amount_minor: { type: integer }
         currency: { type: string }
@@ -267,13 +276,18 @@ components:
             code: { type: string, description: The digits the payer dials. Shown once. }
             merchant_created: { type: boolean, description: True when this request registered the merchant. }
             voice_number: { type: [string, 'null'], description: 'The number the payer rings (E.164). Null until one is set up for your account.', examples: ['+2347000000001'] }
-            dial_string: { type: [string, 'null'], description: 'Number, pauses and code in one string for a dialler: voice number, ",,,", the code and a closing "#". Shown once.', examples: ['+2347000000001,,,482019377104#'] }
-            dial_uri: { type: [string, 'null'], description: 'The same as a tel: link, with the "#" percent-encoded. Shown once.', examples: ['tel:+2347000000001,,,482019377104%23'] }
+            dial_string: { type: [string, 'null'], description: 'Number, pauses and code in one string for a dialler: voice number, ",,", the code and a closing "#". Shown once.', examples: ['+2347000000001,,482019377104#'] }
+            dial_uri: { type: [string, 'null'], description: 'The same as a tel: link, with the "#" percent-encoded. Shown once.', examples: ['tel:+2347000000001,,482019377104%23'] }
     Transaction:
       type: object
       properties:
         id: { type: string, format: uuid }
         code_id: { type: string, format: uuid }
+        origin: { type: string, enum: [issued, device] }
+        subscriber_reference: { type: [string, 'null'], description: Your reference for the payer. }
+        merchant_reference: { type: [string, 'null'], description: Your reference for the payee. }
+        device_id: { type: [string, 'null'], description: 'For a code a phone built offline: the device_id it was enrolled with. Null otherwise.' }
+        device_counter: { type: [integer, 'null'], description: 'For a code a phone built offline: the counter the phone put in it, so the phone can find its own payment. Null otherwise.' }
         reference: { type: string }
         status: { type: string, enum: [pending, settled, failed] }
         amount_minor: { type: integer }

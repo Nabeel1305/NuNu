@@ -57,7 +57,7 @@ export function buildDeviceCode({ deviceKey, deviceShortId, counter, amountMinor
 
 /** Number, pauses, code and "#": what a dialler needs. On a shared voice number pass the tenant's 4-digit short code as `prefix`. */
 export function dialString(voiceNumber, code, prefix = '') {
-  return `${voiceNumber},,,${prefix}${code}#`;
+  return `${voiceNumber},,${prefix}${code}#`;
 }
 
 export class Client {

@@ -65,6 +65,13 @@ class DeviceController extends Controller
             'currency' => strtoupper((string) config('platform.device_codes.currency')),
             'code_length' => DeviceCodeFormat::LENGTH,
             'window_seconds' => DeviceCodeFormat::WINDOW_SECONDS,
+            // What the phone dials, so it needs no connection to know: the number, and on a shared number the short code
+            // that goes in front of the digits.
+            'voice_number' => \App\Models\VoiceNumber::forDialing($tenant)?->e164(),
+            'dial_prefix' => $tenant->usesSharedNumber() ? (string) $tenant->short_code : '',
+            // The caps the platform will apply, so the phone can refuse a payment it knows would be turned down.
+            'max_amount_minor' => DeviceCodeSettings::for($tenant)->maxAmountMinor,
+            'daily_limit_minor' => DeviceCodeSettings::for($tenant)->dailyLimitMinor,
         ], $status);
     }
 

@@ -45,8 +45,8 @@ class CodesApiTest extends TestCase
         $code = $r->json('code');
 
         $r->assertJsonPath('voice_number', '+2347000000001')
-            ->assertJsonPath('dial_string', "+2347000000001,,,{$code}#")
-            ->assertJsonPath('dial_uri', "tel:+2347000000001,,,{$code}%23");
+            ->assertJsonPath('dial_string', "+2347000000001,,{$code}#")
+            ->assertJsonPath('dial_uri', "tel:+2347000000001,,{$code}%23");
     }
 
     public function test_a_number_stored_without_a_plus_is_still_dialled_in_international_form(): void
@@ -70,7 +70,7 @@ class CodesApiTest extends TestCase
 
         $this->assertStringStartsWith($tenant->short_code, $r->json('code'));
         $r->assertJsonPath('voice_number', '+2347000000099')
-            ->assertJsonPath('dial_string', '+2347000000099,,,' . $r->json('code') . '#');
+            ->assertJsonPath('dial_string', '+2347000000099,,' . $r->json('code') . '#');
     }
 
     public function test_a_tenant_never_gets_another_tenants_number_or_a_disabled_one(): void
