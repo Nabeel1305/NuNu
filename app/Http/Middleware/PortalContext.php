@@ -31,7 +31,7 @@ class PortalContext
         }
 
         $tenant = \App\Models\Tenant::find($user->tenant_id);
-        abort_if($tenant === null, 403);
+        abort_if($tenant === null || $tenant->status === 'archived', 403, 'This organisation has been archived.');
 
         $this->context->set($tenant);
         $request->attributes->set('tenant', $tenant);

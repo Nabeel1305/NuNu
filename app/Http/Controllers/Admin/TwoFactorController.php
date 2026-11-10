@@ -62,6 +62,7 @@ class TwoFactorController extends Controller
         $request->session()->forget('admin_2fa');
         Auth::guard('admin')->login($admin, $pending['remember']);
         $request->session()->regenerate();
+        AuthController::began($request, $admin);
 
         return redirect()->intended(route('admin.tenants.index'));
     }

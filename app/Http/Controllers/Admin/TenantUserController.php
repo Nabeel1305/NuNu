@@ -69,6 +69,38 @@ class TenantUserController extends Controller
         return redirect()->route('portal.dashboard');
     }
 
+    public function role(Request $request, Tenant $tenant, int $user): RedirectResponse
+    {
+        $data = $request->validate(['role' => ['required', Rule::in(TenantUser::ROLES)]]);
+        $target = $this->find($tenant, $user);
+        $this->guardLastOwner($tenant, $target, $data['role'] === 'owner');
+        $old = $target->role;
+        $target->update($data);
+        $this->record($request, $tenant, 'admin.portal_user_role', "Portal user {$target->email} changed from {$old} to {$data['role']}", $target);
+
+        return back()->with('status', 'Role changed.');
+    }
+
+    public function destroy(Request $request, Tenant $tenant, int $user): RedirectResponse
+    {
+        $target = $this->find($tenant, $user);
+        $this->guardLastOwner($tenant, $target, false);
+        $this->record($request, $tenant, 'admin.portal_user_removed', "Portal user {$target->email} removed", $target);
+        \App\Models\TenantInvitation::withoutGlobalScopes()->where('tenant_user_id', $target->id)->delete();
+        $target->delete();
+
+        return back()->with('status', 'Removed.');
+    }
+
+    /** A tenant with a portal keeps at least one active owner. */
+    private function guardLastOwner(Tenant $tenant, TenantUser $target, bool $staysOwner): void
+    {
+        if ($target->role === 'owner' && $target->is_active && ! $staysOwner) {
+            $others = TenantUser::withoutGlobalScopes()->where('tenant_id', $tenant->id)->where('role', 'owner')->where('is_active', true)->where('id', '!=', $target->id)->count();
+            abort_if($others === 0, 422, 'The tenant must keep at least one active owner.');
+        }
+    }
+
     public function toggle(Request $request, Tenant $tenant, int $user): RedirectResponse
     {
         $target = $this->find($tenant, $user);

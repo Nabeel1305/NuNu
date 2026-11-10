@@ -93,3 +93,31 @@ Besides codes the API issues, a subscriber's phone can build a signed 40-digit c
 ## Viewing the portal as a tenant's user (support)
 
 On a tenant's page in the operator console, each person who can sign in has a **View as** button. The operator gives a reason (5+ characters) and lands in that person's portal. It is **look-only** (every change is refused), lasts **30 minutes**, hides the person's own account/security pages, and ends the moment the operator signs out or is switched off. The person's own two-factor step is not asked of the operator, who has passed their own. Starting and stopping are written to the **tenant's own audit log** (who, why, when, how long), so the tenant can see every look. Code: `app/Support/Impersonation.php`, `app/Http/Middleware/ImpersonationGuard.php`.
+
+## The operator console
+
+Sign in at `/admin`. What each screen is for:
+
+| Area | What you can do |
+|---|---|
+| **Overview** | Volume, success rate, stuck payments, failing webhooks, busiest tenants. |
+| **Payments** | Every tenant's payments: filters, stuck-only, detail with timeline, *re-check with the tenant*, *close as failed* (the tenant is asked first, so captured money is never marked failed), cancel an unredeemed code, CSV export. Search box in the header finds references, phones, accounts, phones' short ids and tenants. |
+| **Payers / Recipients / Phones** | Subscribers and merchants across tenants (auto-created `direct-…` recipients are marked), enrolled offline phones with *switch off* and CSV export. |
+| **Webhooks / Deliveries** | All endpoints (send test, pause, rotate secret) and deliveries (retry). |
+| **Tenants** | Search/filter/page, go-live checklist, typed confirmation to go live or archive, archive/restore, delete (only if no payment history), switch every portal user off, revoke all keys, API keys with expiry, IP limits and rotation with a grace period, voice numbers (move to another tenant or the pool, delete), shared-number short code, portal users (role, remove, last sign-in), view-as. |
+| **Operators** | Owner / Support / Finance roles, temporary passwords (forced change at first sign-in), reset 2FA, switch off, remove. At least one active owner always remains. |
+| **Audit log** | Every operator change and every sign-in (including failures), filterable, CSV export. Passwords and codes are never written. |
+| **Settings** | Default offline caps, phones per subscriber, idle timeout and alert thresholds, changeable without a server login. |
+| **System health** | Database, cache, queue and failed jobs, scheduler heartbeat, secrets, debug mode, alerts, audit-chain check. |
+
+Roles: **owner** everything; **support** looks, views as a user, fixes payments, retries webhooks, switches phones off, manages portal users; **finance** read only (dashboard, payments, reports).
+
+After pulling: `php artisan migrate --force`. Every existing operator becomes an **owner**. Keep the scheduler running (`php artisan schedule:work`): it expires codes, re-checks payments, sends alerts and writes the heartbeat the health page reads.
+
+Alerts (stuck payments, failed payments, failing webhooks, failed jobs, a broken audit chain) go to Slack and/or email, once per problem and again after `PLATFORM_ALERT_REPEAT_HOURS`:
+
+```
+PLATFORM_ALERT_SLACK_WEBHOOK=https://hooks.slack.com/services/…
+PLATFORM_ALERT_EMAILS=ops@example.com,oncall@example.com     # needs real MAIL_* settings
+PLATFORM_ADMIN_IDLE_MINUTES=60                               # signs idle operators out; also editable under Settings
+```

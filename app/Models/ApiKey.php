@@ -12,7 +12,7 @@ class ApiKey extends Model
 
     protected $hidden = ['key_hash'];
 
-    protected $casts = ['last_used_at' => 'datetime', 'revoked_at' => 'datetime'];
+    protected $casts = ['last_used_at' => 'datetime', 'revoked_at' => 'datetime', 'expires_at' => 'datetime'];
 
     /**
      * Create a key for a tenant. The full key is returned once and only its

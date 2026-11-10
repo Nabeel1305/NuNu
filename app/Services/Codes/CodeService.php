@@ -171,16 +171,15 @@ class CodeService
     }
 
     /** Cancel an unredeemed code and release its hold. */
-    public function cancel(Tenant $tenant, string $uuid): PaymentCode
+    public function cancel(Tenant $tenant, string $uuid, string $actorType = 'tenant', ?int $actorId = null, string $note = 'Code cancelled by the tenant'): PaymentCode
     {
-        return $this->context->run($tenant, function () use ($tenant, $uuid) {
-            $code = DB::transaction(function () use ($tenant, $uuid) {
+        return $this->context->run($tenant, function () use ($tenant, $uuid, $actorType, $actorId, $note) {
+            $code = DB::transaction(function () use ($tenant, $uuid, $actorType, $actorId, $note) {
                 $code = PaymentCode::where('uuid', $uuid)->lockForUpdate()->firstOrFail();
 
                 $code->transitionTo(CodeState::Cancelled);
 
-                $this->audit->record($tenant->id, 'code.cancelled', 'tenant', null, PaymentCode::class, $code->id,
-                    'Code cancelled by the tenant', [], $code->uuid);
+                $this->audit->record($tenant->id, 'code.cancelled', $actorType, $actorId, PaymentCode::class, $code->id, $note, [], $code->uuid);
 
                 return $code;
             }, 3);
@@ -650,61 +649,125 @@ class CodeService
             ->orderBy('id')
             ->chunkById(100, function ($rows) use (&$counts, $cfg) {
                 foreach ($rows as $row) {
-                    $tenant = Tenant::find($row->tenant_id);
-
-                    $this->context->run($tenant, function () use ($tenant, $row, &$counts, $cfg) {
-                        $transaction = Transaction::with('paymentCode.merchant')->find($row->id);
-                        $code = $transaction?->paymentCode;
-
-                        if (! $transaction || $transaction->status !== 'pending' || $code?->state !== CodeState::Redeemed) {
-                            return;
-                        }
-
-                        try {
-                            $status = $this->settlement->for($tenant)->status($tenant, $transaction->reference);
-                        } catch (\Throwable $e) {
-                            Log::error('Reconciliation status check failed', ['transaction' => $transaction->reference, 'error' => $e->getMessage()]);
-
-                            return;
-                        }
-
-                        // A device-signed code whose hold was never recorded cannot have been captured (capture needs the
-                        // hold). Unless the tenant says it is already captured or released, start the hold again: it is keyed
-                        // by the code's uuid, so the tenant answers with the hold it already has.
-                        if ($code->hold_reference === null && ! in_array($status->state, ['captured', 'released'], true)) {
-                            $counts['retried']++;
-                            $this->authoriseAndCapture($tenant, $code);
-
-                            return;
-                        }
-
-                        switch ($status->state) {
-                            case 'captured':
-                                $this->finishSettled($tenant, $code, $transaction, $status->reference) && $counts['settled']++;
-                                break;
-
-                            case 'released':
-                                // The tenant already gave the money back, so nothing to release.
-                                $this->finishFailed($tenant, $code, $transaction, 'The tenant released the hold.', release: false) && $counts['failed']++;
-                                break;
-
-                            case 'held':
-                                // Not captured yet. Capture is keyed by the transaction reference,
-                                // so asking again cannot move the money twice.
-                                $counts['retried']++;
-                                $this->capture($tenant, $code);
-                                break;
-
-                            default:
-                                if ($transaction->created_at->lte(now()->subHours($cfg['review_after_hours'])) && $this->flagForReview($tenant, $transaction)) {
-                                    $counts['flagged']++;
-                                }
-                        }
-                    });
+                    $this->reconcileRow($row, $counts, $cfg);
                 }
             });
 
         return $counts;
+    }
+
+
+    /** Ask the tenant what became of one pending transaction and act on a clear answer. */
+    private function reconcileRow(Transaction $row, array &$counts, array $cfg): void
+    {
+        $tenant = Tenant::find($row->tenant_id);
+
+        $this->context->run($tenant, function () use ($tenant, $row, &$counts, $cfg) {
+            $transaction = Transaction::with('paymentCode.merchant')->find($row->id);
+            $code = $transaction?->paymentCode;
+
+            if (! $transaction || $transaction->status !== 'pending' || $code?->state !== CodeState::Redeemed) {
+                return;
+            }
+
+            try {
+                $status = $this->settlement->for($tenant)->status($tenant, $transaction->reference);
+            } catch (\Throwable $e) {
+                Log::error('Reconciliation status check failed', ['transaction' => $transaction->reference, 'error' => $e->getMessage()]);
+
+                return;
+            }
+
+            // A device-signed code whose hold was never recorded cannot have been captured (capture needs the
+            // hold). Unless the tenant says it is already captured or released, start the hold again: it is keyed
+            // by the code's uuid, so the tenant answers with the hold it already has.
+            if ($code->hold_reference === null && ! in_array($status->state, ['captured', 'released'], true)) {
+                $counts['retried']++;
+                $this->authoriseAndCapture($tenant, $code);
+
+                return;
+            }
+
+            switch ($status->state) {
+                case 'captured':
+                    $this->finishSettled($tenant, $code, $transaction, $status->reference) && $counts['settled']++;
+                    break;
+
+                case 'released':
+                    // The tenant already gave the money back, so nothing to release.
+                    $this->finishFailed($tenant, $code, $transaction, 'The tenant released the hold.', release: false) && $counts['failed']++;
+                    break;
+
+                case 'held':
+                    // Not captured yet. Capture is keyed by the transaction reference,
+                    // so asking again cannot move the money twice.
+                    $counts['retried']++;
+                    $this->capture($tenant, $code);
+                    break;
+
+                default:
+                    if ($transaction->created_at->lte(now()->subHours($cfg['review_after_hours'])) && $this->flagForReview($tenant, $transaction)) {
+                        $counts['flagged']++;
+                    }
+            }
+        });
+    }
+
+    /**
+     * One pending transaction, on an operator's request: the same check the scheduler does. Returns what happened.
+     *
+     * @return string settled | failed | retried | flagged | unchanged
+     */
+    public function recheck(Transaction $transaction): string
+    {
+        $counts = ['settled' => 0, 'failed' => 0, 'retried' => 0, 'flagged' => 0];
+        $cfg = config('platform.reconcile');
+        $before = $transaction->status;
+
+        $this->reconcileRow($transaction, $counts, ['review_after_hours' => 0] + $cfg);
+
+        $after = Transaction::withoutGlobalScopes()->whereKey($transaction->id)->value('status');
+        if ($after !== $before) {
+            return $after === 'settled' ? 'settled' : 'failed';
+        }
+
+        return $counts['retried'] ? 'retried' : ($counts['flagged'] ? 'flagged' : 'unchanged');
+    }
+
+    /**
+     * An operator closes a payment that will not resolve by itself. The tenant is asked first: money that was already
+     * captured is recorded as settled instead, never as failed. Returns a sentence for the operator.
+     */
+    public function markFailed(Transaction $transaction, string $reason): string
+    {
+        $tenant = Tenant::findOrFail($transaction->tenant_id);
+
+        return $this->context->run($tenant, function () use ($tenant, $transaction, $reason) {
+            $tx = Transaction::with('paymentCode')->findOrFail($transaction->id);
+            $code = $tx->paymentCode;
+
+            if ($tx->status !== 'pending' || $code->state !== CodeState::Redeemed) {
+                return 'It is no longer pending.';
+            }
+
+            try {
+                $status = $this->settlement->for($tenant)->status($tenant, $tx->reference);
+            } catch (\Throwable $e) {
+                Log::error('Mark-failed status check failed', ['transaction' => $tx->reference, 'error' => $e->getMessage()]);
+
+                return 'Could not reach the tenant to confirm the money did not move. Nothing was changed; try again shortly.';
+            }
+
+            if ($status->state === 'captured') {
+                $this->finishSettled($tenant, $code, $tx, $status->reference);
+
+                return 'The tenant had already captured the money, so it was recorded as settled instead.';
+            }
+
+            $this->finishFailed($tenant, $code, $tx, 'Closed by an operator: ' . $reason, release: $status->state !== 'released');
+
+            return 'Marked failed' . ($status->state === 'released' ? '.' : ' and the hold released.');
+        });
     }
 
     private function flagForReview(Tenant $tenant, Transaction $transaction): bool

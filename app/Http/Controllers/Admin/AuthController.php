@@ -55,6 +55,8 @@ class AuthController extends Controller
             RateLimiter::hit($key, self::DECAY_SECONDS);
             RateLimiter::hit($accountKey, (int) config('platform.login.account_decay_seconds'));
 
+            \App\Support\PlatformAudit::record(null, 'admin.login_failed', 'Sign-in refused', null, null, [], 'failed', $request->ip(), $credentials['email']);
+
             // The same message whether the email exists, the password is wrong or the admin is inactive.
             throw ValidationException::withMessages(['email' => 'These credentials do not match.']);
         }
@@ -71,12 +73,23 @@ class AuthController extends Controller
 
         Auth::guard('admin')->login($admin, $request->boolean('remember'));
         $request->session()->regenerate();
+        self::began($request, $admin);
 
         return redirect()->intended(route('admin.tenants.index'));
     }
 
+    /** Called once an operator is fully signed in (after the second factor too). */
+    public static function began(Request $request, \App\Models\Admin $admin): void
+    {
+        $admin->forceFill(['last_login_at' => now()])->save();
+        $request->session()->put('admin_epoch', $admin->session_epoch);
+        $request->session()->put('admin_last_activity', now()->timestamp);
+        \App\Support\PlatformAudit::record($admin, 'admin.login', 'Signed in', null, null, ['two_factor' => $admin->hasTwoFactor()]);
+    }
+
     public function logout(Request $request): RedirectResponse
     {
+        \App\Support\PlatformAudit::record($request->user('admin'), 'admin.logout', 'Signed out');
         Auth::guard('admin')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

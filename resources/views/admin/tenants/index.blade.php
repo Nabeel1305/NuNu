@@ -8,6 +8,12 @@
     </div>
 </div>
 
+<form class="row g-2 mb-3" method="get">
+    <div class="col-md-4"><input name="q" class="form-control form-control-sm" placeholder="Name or identifier" value="{{ request('q') }}"></div>
+    <div class="col-md-2"><select name="status" class="form-select form-select-sm"><option value="">Not archived</option>@foreach(['active','suspended','archived'] as $v)<option value="{{ $v }}" @selected(request('status') === $v)>{{ $v }}@if($v === 'archived' && $archivedCount) ({{ $archivedCount }})@endif</option>@endforeach</select></div>
+    <div class="col-md-2"><select name="environment" class="form-select form-select-sm"><option value="">Any environment</option>@foreach(['sandbox','live'] as $v)<option value="{{ $v }}" @selected(request('environment') === $v)>{{ $v }}</option>@endforeach</select></div>
+    <div class="col-auto"><button class="btn btn-sm btn-brand">Filter</button></div>
+</form>
 <div class="card mb-4">
     @if ($tenants->isEmpty())
         <div class="empty-state"><i class="ti ti-building-community"></i><h5>No tenants yet</h5><p class="mb-0">Create the first one below.</p></div>
@@ -20,7 +26,7 @@
                 <tr>
                     <td><a href="{{ route('admin.tenants.show', $tenant) }}" class="fw-semibold">{{ $tenant->name }}</a><div class="kv">{{ $tenant->slug }}</div></td>
                     <td><span class="{{ $tenant->environment === 'live' ? 'badge-info-soft' : 'badge-theme' }}">{{ $tenant->environment }}</span></td>
-                    <td><span class="{{ $tenant->status === 'active' ? 'badge-success-soft' : 'badge-danger-soft' }}">{{ $tenant->status }}</span></td>
+                    <td><span class="{{ ['active' => 'badge-success-soft', 'archived' => 'badge-theme'][$tenant->status] ?? 'badge-danger-soft' }}">{{ $tenant->status }}</span></td>
                     <td>{{ $tenant->voice_mode }}@if($tenant->voice_mode==='shared') <span class="kv">({{ $tenant->short_code }})</span>@endif</td>
                     <td>{{ $tenant->active_keys_count }}</td>
                     <td>@if(($pending[$tenant->id] ?? 0) > 0)<span class="badge-warning-soft">{{ $pending[$tenant->id] }}</span>@else<span class="text-muted">0</span>@endif</td>
@@ -31,6 +37,7 @@
     </div>
     @endif
 </div>
+<div class="mb-4">{{ $tenants->links() }}</div>
 
 <div class="card" style="max-width:720px">
     <div class="card-header"><span class="section-title mb-0 mt-0">New tenant</span></div>

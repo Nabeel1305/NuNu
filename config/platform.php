@@ -34,6 +34,16 @@ return [
         'currency' => env('PLATFORM_DEVICE_CODE_CURRENCY', 'NGN'),
     ],
 
+    // Alerts to operators. Slack incoming-webhook URL and/or a comma-separated list of emails (needs working MAIL_*).
+    'alerts' => [
+        'slack_webhook' => env('PLATFORM_ALERT_SLACK_WEBHOOK'),
+        'emails' => env('PLATFORM_ALERT_EMAILS'),
+        'stuck_minutes' => (int) env('PLATFORM_ALERT_STUCK_MINUTES', 30),
+        'webhook_failures' => (int) env('PLATFORM_ALERT_WEBHOOK_FAILURES', 5),
+        'failed_payments' => (int) env('PLATFORM_ALERT_FAILED_PAYMENTS', 10),
+        'repeat_hours' => (int) env('PLATFORM_ALERT_REPEAT_HOURS', 6),
+    ],
+
     // Root secret the phones' keys are derived from. Set it once, keep it in a secret manager, never lose it.
     'device_key_secret' => env('PLATFORM_DEVICE_KEY_SECRET', ''),
 
@@ -62,6 +72,8 @@ return [
     'admin' => [
         // null = required in production, optional elsewhere. Set true or false to force it.
         'require_two_factor' => env('PLATFORM_ADMIN_REQUIRE_2FA'),
+        // An operator left idle this long is signed out. 0 turns it off.
+        'idle_minutes' => (int) env('PLATFORM_ADMIN_IDLE_MINUTES', 60),
     ],
 
     // Voice callbacks all arrive from the provider's servers, so a per-IP limit

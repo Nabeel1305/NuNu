@@ -21,6 +21,8 @@ class TenantScopeCoverageTest extends TestCase
         'api_keys' => 'looked up by key before any tenant is known',
         'voice_numbers' => 'resolved from the dialled number before any tenant is known',
         'audit_logs' => 'written only by AuditLogService, which is always given the tenant id',
+        'platform_audit_logs' => 'operators\' own log, read only on the operator console; tenant_id is just a label for what they touched',
+        'platform_audit_logs' => 'operator actions, written only by PlatformAudit; tenant_id is just a pointer to what the operator touched',
         'audit_chain_heads' => 'lock row addressed by tenant id inside AuditLogService; has no model',
     ];
 

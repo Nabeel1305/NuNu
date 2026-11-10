@@ -41,7 +41,7 @@ class DeviceController extends Controller
         $status = 200;
 
         if ($device === null) {
-            $max = (int) config('platform.device_codes.max_devices_per_subscriber');
+            $max = \App\Support\PlatformSettings::effective('device_codes.max_devices_per_subscriber');
             if (OfflineDevice::where('subscriber_id', $subscriber->id)->where('status', 'active')->count() >= $max) {
                 throw ValidationException::withMessages(['device_id' => "A subscriber can have at most {$max} active devices. Revoke one first."]);
             }

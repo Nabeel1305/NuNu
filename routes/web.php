@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\TenantAccessController;
 use App\Http\Controllers\Admin\TenantController;
@@ -18,32 +19,109 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('two-factor', [TwoFactorController::class, 'challenge'])->name('two-factor');
     Route::post('two-factor', [TwoFactorController::class, 'verify'])->name('two-factor.verify');
 
-    Route::middleware('auth:admin')->group(function () {
+    // An operator's own pages: reachable before two-factor is set up, and while a temporary password is being replaced.
+    Route::middleware(['auth:admin', 'admin.session', 'admin.record'])->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
         Route::get('security', [TwoFactorController::class, 'setup'])->name('security');
         Route::post('security', [TwoFactorController::class, 'confirm'])->name('security.confirm');
+        Route::get('password', [Admin\AccountController::class, 'password'])->name('password');
+        Route::put('password', [Admin\AccountController::class, 'updatePassword'])->name('password.update');
+        Route::post('sign-out-everywhere', [Admin\AccountController::class, 'signOutEverywhere'])->name('sign-out-everywhere');
     });
 
-    Route::middleware(['auth:admin', EnsureTwoFactor::class])->group(function () {
+    Route::middleware(['auth:admin', 'admin.session', EnsureTwoFactor::class, 'admin.record'])->group(function () {
 
         Route::redirect('/', '/admin/tenants');
-        Route::get('tenants', [TenantController::class, 'index'])->name('tenants.index');
-        Route::post('tenants', [TenantController::class, 'store'])->name('tenants.store');
-        Route::get('tenants/{tenant}', [TenantController::class, 'show'])->name('tenants.show');
-        Route::put('tenants/{tenant}', [TenantController::class, 'update'])->name('tenants.update');
-        Route::post('tenants/{tenant}/verify-audit', [TenantController::class, 'verifyAudit'])->name('tenants.verify-audit');
 
-        Route::post('tenants/{tenant}/keys', [TenantAccessController::class, 'issueKey'])->name('keys.store');
-        Route::delete('tenants/{tenant}/keys/{key}', [TenantAccessController::class, 'revokeKey'])->name('keys.destroy');
-        Route::post('tenants/{tenant}/numbers', [TenantAccessController::class, 'addNumber'])->name('numbers.store');
-        Route::patch('tenants/{tenant}/numbers/{number}', [TenantAccessController::class, 'toggleNumber'])->name('numbers.toggle');
-        Route::post('tenants/{tenant}/numbers/{number}/rotate-token', [TenantAccessController::class, 'rotateNumberToken'])->name('numbers.rotate');
+        // ── Look (every role) ────────────────────────────────────────────────
+        Route::middleware('admin.can:view')->group(function () {
+            Route::get('dashboard', Admin\DashboardController::class)->name('dashboard');
+            Route::get('search', [Admin\SearchController::class, 'index'])->name('search');
+            Route::get('tenants', [TenantController::class, 'index'])->name('tenants.index');
+            Route::get('tenants/{tenant}', [TenantController::class, 'show'])->name('tenants.show');
+            Route::get('payments', [Admin\PaymentsController::class, 'index'])->name('payments.index');
+            Route::get('payments/{uuid}', [Admin\PaymentsController::class, 'show'])->whereUuid('uuid')->name('payments.show');
+            Route::get('payers', [Admin\PartiesController::class, 'subscribers'])->name('parties.subscribers');
+            Route::get('recipients', [Admin\PartiesController::class, 'merchants'])->name('parties.merchants');
+            Route::get('phones', [Admin\DevicesController::class, 'index'])->name('devices.index');
+            Route::get('webhooks', [Admin\WebhooksController::class, 'endpoints'])->name('endpoints.index');
+            Route::get('deliveries', [Admin\WebhooksController::class, 'deliveries'])->name('deliveries.index');
+            Route::get('deliveries/{delivery}', [Admin\WebhooksController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.show');
+            Route::get('health', [Admin\HealthController::class, 'index'])->name('health');
+            Route::get('changelog', Admin\ChangelogController::class)->name('changelog');
+        });
 
-        Route::post('tenants/{tenant}/portal-users', [TenantUserController::class, 'store'])->name('portal-users.store');
-        Route::post('tenants/{tenant}/portal-users/{user}/access-link', [TenantUserController::class, 'reinvite'])->name('portal-users.reinvite');
-        Route::post('tenants/{tenant}/portal-users/{user}/reset-2fa', [TenantUserController::class, 'resetTwoFactor'])->name('portal-users.reset-2fa');
-        Route::patch('tenants/{tenant}/portal-users/{user}', [TenantUserController::class, 'toggle'])->name('portal-users.toggle');
-        Route::post('tenants/{tenant}/portal-users/{user}/impersonate', [TenantUserController::class, 'impersonate'])->name('portal-users.impersonate')->middleware('throttle:10,1');
+        Route::middleware('admin.can:reports')->group(function () {
+            Route::get('payments-export', [Admin\PaymentsController::class, 'export'])->name('payments.export');
+            Route::get('phones-export', [Admin\DevicesController::class, 'export'])->name('devices.export');
+        });
+
+        Route::middleware('admin.can:audit')->group(function () {
+            Route::get('audit', [Admin\AuditController::class, 'index'])->name('audit');
+            Route::get('audit-export', [Admin\AuditController::class, 'export'])->name('audit.export');
+            Route::post('tenants/{tenant}/verify-audit', [TenantController::class, 'verifyAudit'])->name('tenants.verify-audit');
+            Route::post('health/verify-audit', [Admin\HealthController::class, 'verifyAudit'])->name('health.verify-audit');
+        });
+
+        // ── Fix things (support and owner) ───────────────────────────────────
+        Route::middleware('admin.can:payments')->group(function () {
+            Route::post('payments/{uuid}/recheck', [Admin\PaymentsController::class, 'recheck'])->whereUuid('uuid')->name('payments.recheck');
+            Route::post('payments/{uuid}/mark-failed', [Admin\PaymentsController::class, 'markFailed'])->whereUuid('uuid')->name('payments.mark-failed');
+            Route::post('codes/{uuid}/cancel', [Admin\PaymentsController::class, 'cancelCode'])->whereUuid('uuid')->name('codes.cancel');
+        });
+        Route::middleware('admin.can:webhooks')->group(function () {
+            Route::post('deliveries/{delivery}/retry', [Admin\WebhooksController::class, 'retry'])->whereNumber('delivery')->name('deliveries.retry');
+            Route::post('webhooks/{endpoint}/test', [Admin\WebhooksController::class, 'test'])->whereNumber('endpoint')->name('endpoints.test');
+            Route::patch('webhooks/{endpoint}', [Admin\WebhooksController::class, 'toggle'])->whereNumber('endpoint')->name('endpoints.toggle');
+            Route::post('webhooks/{endpoint}/secret', [Admin\WebhooksController::class, 'rotate'])->whereNumber('endpoint')->name('endpoints.rotate');
+        });
+        Route::post('phones/{device}/revoke', [Admin\DevicesController::class, 'revoke'])->whereNumber('device')->name('devices.revoke')->middleware('admin.can:devices');
+
+        Route::middleware('admin.can:portal_users')->group(function () {
+            Route::post('tenants/{tenant}/portal-users', [TenantUserController::class, 'store'])->name('portal-users.store');
+            Route::post('tenants/{tenant}/portal-users/{user}/access-link', [TenantUserController::class, 'reinvite'])->name('portal-users.reinvite');
+            Route::post('tenants/{tenant}/portal-users/{user}/reset-2fa', [TenantUserController::class, 'resetTwoFactor'])->name('portal-users.reset-2fa');
+            Route::patch('tenants/{tenant}/portal-users/{user}', [TenantUserController::class, 'toggle'])->name('portal-users.toggle');
+            Route::patch('tenants/{tenant}/portal-users/{user}/role', [TenantUserController::class, 'role'])->name('portal-users.role');
+            Route::delete('tenants/{tenant}/portal-users/{user}', [TenantUserController::class, 'destroy'])->name('portal-users.destroy');
+        });
+        Route::post('tenants/{tenant}/portal-users/{user}/impersonate', [TenantUserController::class, 'impersonate'])->name('portal-users.impersonate')->middleware(['admin.can:view_as', 'throttle:10,1']);
+
+        // ── Change tenants (owner) ───────────────────────────────────────────
+        Route::middleware('admin.can:tenants')->group(function () {
+            Route::post('tenants', [TenantController::class, 'store'])->name('tenants.store');
+            Route::put('tenants/{tenant}', [TenantController::class, 'update'])->name('tenants.update');
+            Route::post('tenants/{tenant}/archive', [TenantController::class, 'archive'])->name('tenants.archive');
+            Route::post('tenants/{tenant}/restore', [TenantController::class, 'restore'])->name('tenants.restore');
+            Route::delete('tenants/{tenant}', [TenantController::class, 'destroy'])->name('tenants.destroy');
+            Route::post('tenants/{tenant}/portal-users-bulk', [TenantController::class, 'bulkUsers'])->name('tenants.bulk-users');
+
+            Route::post('tenants/{tenant}/keys', [TenantAccessController::class, 'issueKey'])->name('keys.store');
+            Route::delete('tenants/{tenant}/keys/{key}', [TenantAccessController::class, 'revokeKey'])->name('keys.destroy');
+            Route::patch('tenants/{tenant}/keys/{key}', [TenantAccessController::class, 'updateKey'])->name('keys.update');
+            Route::post('tenants/{tenant}/keys/{key}/rotate', [TenantAccessController::class, 'rotateKey'])->name('keys.rotate');
+            Route::post('tenants/{tenant}/keys-revoke-all', [TenantAccessController::class, 'revokeAllKeys'])->name('keys.revoke-all');
+            Route::post('tenants/{tenant}/numbers', [TenantAccessController::class, 'addNumber'])->name('numbers.store');
+            Route::patch('tenants/{tenant}/numbers/{number}', [TenantAccessController::class, 'toggleNumber'])->name('numbers.toggle');
+            Route::post('tenants/{tenant}/numbers/{number}/rotate-token', [TenantAccessController::class, 'rotateNumberToken'])->name('numbers.rotate');
+            Route::post('tenants/{tenant}/numbers/{number}/reassign', [TenantAccessController::class, 'reassignNumber'])->name('numbers.reassign');
+            Route::delete('tenants/{tenant}/numbers/{number}', [TenantAccessController::class, 'destroyNumber'])->name('numbers.destroy');
+        });
+
+        // ── Run the platform (owner) ─────────────────────────────────────────
+        Route::middleware('admin.can:operators')->prefix('operators')->name('operators.')->group(function () {
+            Route::get('/', [Admin\OperatorController::class, 'index'])->name('index');
+            Route::post('/', [Admin\OperatorController::class, 'store'])->name('store');
+            Route::patch('{admin}/role', [Admin\OperatorController::class, 'role'])->name('role');
+            Route::patch('{admin}', [Admin\OperatorController::class, 'toggle'])->name('toggle');
+            Route::post('{admin}/reset-2fa', [Admin\OperatorController::class, 'resetTwoFactor'])->name('reset-2fa');
+            Route::post('{admin}/reset-password', [Admin\OperatorController::class, 'resetPassword'])->name('reset-password');
+            Route::delete('{admin}', [Admin\OperatorController::class, 'destroy'])->name('destroy');
+        });
+        Route::middleware('admin.can:settings')->group(function () {
+            Route::get('settings', [Admin\SettingsController::class, 'edit'])->name('settings');
+            Route::put('settings', [Admin\SettingsController::class, 'update'])->name('settings.update');
+        });
     });
 });
 

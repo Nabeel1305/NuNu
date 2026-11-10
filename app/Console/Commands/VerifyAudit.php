@@ -25,6 +25,7 @@ class VerifyAudit extends Command
         }
 
         $failed = false;
+        $brokenSlugs = [];
 
         foreach ($tenants as $tenant) {
             $broken = $audit->verifyChain($tenant->id);
@@ -33,8 +34,13 @@ class VerifyAudit extends Command
                 $this->info("{$tenant->slug}: intact");
             } else {
                 $failed = true;
+                $brokenSlugs[] = $tenant->slug;
                 $this->error("{$tenant->slug}: BROKEN at entries " . implode(', ', $broken));
             }
+        }
+
+        if (! $this->argument('tenant')) {
+            \Illuminate\Support\Facades\Cache::forever('platform:audit:last', ['at' => now()->timestamp, 'broken' => $brokenSlugs]);
         }
 
         return $failed ? self::FAILURE : self::SUCCESS;

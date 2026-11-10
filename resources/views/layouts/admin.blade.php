@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <title>@yield('title', 'Platform admin') · PakaPay Offline Platform</title>
+    <title>@yield('title', 'Operator console') · PakaPay Offline Platform</title>
     <link rel="icon" type="image/png" href="{{ asset('assets/img/favicon.png') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/icons/tabler-icons.min.css') }}">
@@ -13,24 +13,47 @@
     <link rel="stylesheet" href="{{ asset('assets/css/admin-extra.css') }}?v={{ filemtime(public_path('assets/css/admin-extra.css')) }}">
     @stack('styles')
 </head>
-<body>
+<body class="admin-theme">
 <a href="#main" class="skip-link">Skip to content</a>
 @php
-    $admin        = auth('admin')->user();
-    $adminName    = $admin->name ?? 'Admin';
-    $adminInitial = strtoupper(mb_substr($adminName, 0, 1));
+    $me = auth('admin')->user();
+    $meInitial = strtoupper(mb_substr($me->name ?? 'A', 0, 1));
     $navGroups = [
         ['label' => null, 'items' => [
-            ['label' => 'Tenants',  'icon' => 'ti-building',    'route' => 'admin.tenants.index', 'match' => ['admin.tenants.*']],
+            ['label' => 'Overview', 'icon' => 'ti-layout-dashboard', 'route' => 'admin.dashboard', 'match' => ['admin.dashboard'], 'can' => 'view'],
+        ]],
+        ['label' => 'Payments', 'items' => [
+            ['label' => 'Payments', 'icon' => 'ti-arrows-exchange', 'route' => 'admin.payments.index', 'match' => ['admin.payments.*', 'admin.codes.*'], 'can' => 'view'],
+            ['label' => 'Payers', 'icon' => 'ti-users', 'route' => 'admin.parties.subscribers', 'match' => ['admin.parties.subscribers'], 'can' => 'view'],
+            ['label' => 'Recipients', 'icon' => 'ti-building-store', 'route' => 'admin.parties.merchants', 'match' => ['admin.parties.merchants'], 'can' => 'view'],
+            ['label' => 'Phones', 'icon' => 'ti-device-mobile', 'route' => 'admin.devices.index', 'match' => ['admin.devices.*'], 'can' => 'view'],
+        ]],
+        ['label' => 'Integrations', 'items' => [
+            ['label' => 'Webhooks', 'icon' => 'ti-webhook', 'route' => 'admin.endpoints.index', 'match' => ['admin.endpoints.*'], 'can' => 'view'],
+            ['label' => 'Deliveries', 'icon' => 'ti-send', 'route' => 'admin.deliveries.index', 'match' => ['admin.deliveries.*'], 'can' => 'view'],
+        ]],
+        ['label' => 'Platform', 'items' => [
+            ['label' => 'Tenants', 'icon' => 'ti-building', 'route' => 'admin.tenants.index', 'match' => ['admin.tenants.*', 'admin.keys.*', 'admin.numbers.*', 'admin.portal-users.*'], 'can' => 'view'],
+            ['label' => 'Operators', 'icon' => 'ti-user-shield', 'route' => 'admin.operators.index', 'match' => ['admin.operators.*'], 'can' => 'operators'],
+            ['label' => 'Audit log', 'icon' => 'ti-history', 'route' => 'admin.audit', 'match' => ['admin.audit*'], 'can' => 'audit'],
+            ['label' => 'Settings', 'icon' => 'ti-settings', 'route' => 'admin.settings', 'match' => ['admin.settings*'], 'can' => 'settings'],
+            ['label' => 'System health', 'icon' => 'ti-heartbeat', 'route' => 'admin.health', 'match' => ['admin.health*'], 'can' => 'view'],
+            ['label' => 'What changed', 'icon' => 'ti-news', 'route' => 'admin.changelog', 'match' => ['admin.changelog'], 'can' => 'view'],
         ]],
         ['label' => 'Account', 'items' => [
-            ['label' => 'Security', 'icon' => 'ti-shield-lock', 'route' => 'admin.security',       'match' => ['admin.security*']],
+            ['label' => 'Security', 'icon' => 'ti-shield-lock', 'route' => 'admin.security', 'match' => ['admin.security*'], 'can' => null],
+            ['label' => 'Password', 'icon' => 'ti-key', 'route' => 'admin.password', 'match' => ['admin.password*'], 'can' => null],
         ]],
     ];
     $navActive = null; $navActiveGroup = null;
-    foreach ($navGroups as $g) foreach ($g['items'] as $i) {
-        if (! $navActive && request()->routeIs(...$i['match'])) { $navActive = $i; $navActiveGroup = $g['label']; }
+    foreach ($navGroups as &$g) {
+        $g['items'] = array_values(array_filter($g['items'], fn ($i) => $i['can'] === null || $me->can($i['can'])));
+        foreach ($g['items'] as $i) {
+            if (! $navActive && request()->routeIs(...$i['match'])) { $navActive = $i; $navActiveGroup = $g['label']; }
+        }
     }
+    unset($g);
+    $navGroups = array_values(array_filter($navGroups, fn ($g) => $g['items'] !== []));
     $crumbCurrent = trim($__env->yieldContent('breadcrumb')) ?: ($navActive['label'] ?? 'Overview');
     $crumbIsChild = $navActive && $crumbCurrent !== $navActive['label'];
 @endphp
@@ -38,10 +61,11 @@
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
 <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-    <a class="sidebar-logo" href="{{ route('admin.tenants.index') }}" aria-label="Offline Platform home">
+    <a class="sidebar-logo" href="{{ route('admin.dashboard') }}" aria-label="Operator console home">
         <div class="sidebar-logo-icon">P</div>
         <div class="sidebar-logo-text">Paka<span>Pay</span></div>
     </a>
+    <div class="sidebar-tenant"><small>Console</small><strong>Offline Platform</strong></div>
 
     <nav class="sidebar-nav">
         @foreach($navGroups as $group)
@@ -49,8 +73,7 @@
             @foreach($group['items'] as $item)
                 @php $isActive = $navActive && $navActive['route'] === $item['route']; @endphp
                 <a href="{{ route($item['route']) }}" class="nav-item-link {{ $isActive ? 'active' : '' }}" @if($isActive) aria-current="page" @endif>
-                    <i class="ti {{ $item['icon'] }}" aria-hidden="true"></i>
-                    <span>{{ $item['label'] }}</span>
+                    <i class="ti {{ $item['icon'] }}" aria-hidden="true"></i><span>{{ $item['label'] }}</span>
                 </a>
             @endforeach
         @endforeach
@@ -58,10 +81,10 @@
 
     <div class="sidebar-footer">
         <div class="sidebar-user">
-            <div class="sidebar-user-avatar" aria-hidden="true">{{ $adminInitial }}</div>
+            <div class="sidebar-user-avatar" aria-hidden="true">{{ $meInitial }}</div>
             <div class="sidebar-user-info">
-                <div class="sidebar-user-name">{{ $adminName }}</div>
-                <div class="sidebar-user-role">{{ $admin->email ?? 'Platform operator' }}</div>
+                <div class="sidebar-user-name">{{ $me->name }}</div>
+                <div class="sidebar-user-role">{{ ucfirst($me->role ?? 'owner') }}</div>
             </div>
             <form action="{{ route('admin.logout') }}" method="POST">@csrf
                 <button type="submit" class="sidebar-logout" aria-label="Sign out" title="Sign out"><i class="ti ti-logout"></i></button>
@@ -74,15 +97,16 @@
     <div class="header-left">
         <button class="header-menu-btn" data-open-sidebar aria-label="Open navigation"><i class="ti ti-menu-2"></i></button>
         <nav class="header-breadcrumb" aria-label="Breadcrumb">
-            <span>Offline Platform</span><span class="sep">/</span>
             @if($navActiveGroup)<span>{{ $navActiveGroup }}</span><span class="sep">/</span>@endif
-            @if($crumbIsChild)
-                <a href="{{ route($navActive['route']) }}" class="crumb-link">{{ $navActive['label'] }}</a><span class="sep">/</span>
-            @endif
+            @if($crumbIsChild)<a href="{{ route($navActive['route']) }}" class="crumb-link">{{ $navActive['label'] }}</a><span class="sep">/</span>@endif
             <strong aria-current="page">{{ $crumbCurrent }}</strong>
         </nav>
     </div>
     <div class="header-right">
+        @if($me->can('view'))
+        <form method="get" action="{{ route('admin.search') }}" class="d-none d-md-flex" role="search"><input name="q" class="form-control form-control-sm" style="width:15rem" placeholder="Search payments, phones, accounts…" aria-label="Search" value="{{ request()->routeIs('admin.search') ? request('q') : '' }}"></form>
+        @endif
+        <span class="env-pill {{ app()->environment('production') ? 'is-live' : 'is-sandbox' }}" title="{{ app()->environment('production') ? 'Production server' : 'Not a production server' }}">{{ app()->environment('production') ? 'Production' : ucfirst(app()->environment()) }}</span>
         <button type="button" class="icon-btn" id="themeToggle" aria-label="Switch to dark mode" title="Switch theme"><i class="ti ti-moon" aria-hidden="true"></i></button>
     </div>
 </header>
@@ -104,28 +128,24 @@
     @yield('content')
 </main>
 
-<footer class="app-footer">© {{ date('Y') }} PakaPay · Offline Payment Platform</footer>
+<footer class="app-footer">© {{ date('Y') }} PakaPay · Offline Payment Platform · operator console</footer>
 
 <nav class="mobile-bottom-nav" aria-label="Quick navigation">
-    <a href="{{ route('admin.tenants.index') }}" class="{{ request()->routeIs('admin.tenants.*') ? 'active' : '' }}"><i class="ti ti-building"></i><span>Tenants</span></a>
-    <a href="{{ route('admin.security') }}" class="{{ request()->routeIs('admin.security*') ? 'active' : '' }}"><i class="ti ti-shield-lock"></i><span>Security</span></a>
+    @if($me->can('view'))<a href="{{ route('admin.dashboard') }}" class="{{ request()->routeIs('admin.dashboard') ? 'active' : '' }}"><i class="ti ti-layout-dashboard"></i><span>Home</span></a>
+    <a href="{{ route('admin.payments.index') }}" class="{{ request()->routeIs('admin.payments.*') ? 'active' : '' }}"><i class="ti ti-arrows-exchange"></i><span>Payments</span></a>
+    <a href="{{ route('admin.tenants.index') }}" class="{{ request()->routeIs('admin.tenants.*') ? 'active' : '' }}"><i class="ti ti-building"></i><span>Tenants</span></a>@endif
     <button type="button" data-open-sidebar><i class="ti ti-menu-2"></i><span>More</span></button>
 </nav>
 
 <div class="toast-stack" aria-live="polite">
     @if(session('status'))
-        <div class="app-toast is-success" role="status" data-autohide="1">
-            <i class="ti ti-circle-check" aria-hidden="true"></i>
-            <div class="app-toast-body">{{ session('status') }}</div>
-            <button type="button" class="app-toast-close" aria-label="Dismiss">&times;</button>
-        </div>
+        <div class="app-toast is-success" role="status" data-autohide="1"><i class="ti ti-circle-check" aria-hidden="true"></i><div class="app-toast-body">{{ session('status') }}</div><button type="button" class="app-toast-close" aria-label="Dismiss">&times;</button></div>
+    @endif
+    @if(session('tamper'))
+        <div class="app-toast is-error" role="alert" data-autohide="0"><i class="ti ti-alert-circle" aria-hidden="true"></i><div class="app-toast-body">{{ session('tamper') }}</div><button type="button" class="app-toast-close" aria-label="Dismiss">&times;</button></div>
     @endif
     @foreach($errors->all() as $error)
-        <div class="app-toast is-error" role="alert" data-autohide="0">
-            <i class="ti ti-alert-circle" aria-hidden="true"></i>
-            <div class="app-toast-body">{{ $error }}</div>
-            <button type="button" class="app-toast-close" aria-label="Dismiss">&times;</button>
-        </div>
+        <div class="app-toast is-error" role="alert" data-autohide="0"><i class="ti ti-alert-circle" aria-hidden="true"></i><div class="app-toast-body">{{ $error }}</div><button type="button" class="app-toast-close" aria-label="Dismiss">&times;</button></div>
     @endforeach
 </div>
 

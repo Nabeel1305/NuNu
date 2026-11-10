@@ -34,12 +34,22 @@ class AuthenticateTenant
             return $this->error('unauthenticated', 'Missing or invalid API key.', 401);
         }
 
+        // A key can carry an end date and a list of addresses it may be used from.
+        if ($key->expires_at && $key->expires_at->isPast()) {
+            RateLimiter::hit($badKeyLimit, 60);
+
+            return $this->error('unauthenticated', 'This API key has expired.', 401);
+        }
+        if (filled($key->allowed_ips) && ! in_array($request->ip(), explode(',', $key->allowed_ips), true)) {
+            return $this->error('ip_not_allowed', 'This API key cannot be used from this address.', 403);
+        }
+
         if (! $key->tenant->isActive()) {
             return $this->error('tenant_suspended', 'This account is suspended.', 403);
         }
 
         if ($key->last_used_at === null || $key->last_used_at->diffInSeconds(now()) > 60) {
-            $key->forceFill(['last_used_at' => now()])->save();
+            $key->forceFill(['last_used_at' => now(), 'last_used_ip' => $request->ip()])->save();
         }
 
         $this->context->set($key->tenant);
