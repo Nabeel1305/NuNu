@@ -26,6 +26,7 @@
             ['label' => 'Payments', 'icon' => 'ti-arrows-exchange', 'route' => 'admin.payments.index', 'match' => ['admin.payments.*', 'admin.codes.*'], 'can' => 'view'],
             ['label' => 'Payers', 'icon' => 'ti-users', 'route' => 'admin.parties.subscribers', 'match' => ['admin.parties.subscribers'], 'can' => 'view'],
             ['label' => 'Recipients', 'icon' => 'ti-building-store', 'route' => 'admin.parties.merchants', 'match' => ['admin.parties.merchants'], 'can' => 'view'],
+            ['label' => 'Calls', 'icon' => 'ti-phone-incoming', 'route' => 'admin.calls', 'match' => ['admin.calls'], 'can' => 'view'],
             ['label' => 'Phones', 'icon' => 'ti-device-mobile', 'route' => 'admin.devices.index', 'match' => ['admin.devices.*'], 'can' => 'view'],
         ]],
         ['label' => 'Integrations', 'items' => [

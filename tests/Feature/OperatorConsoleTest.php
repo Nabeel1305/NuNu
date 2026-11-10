@@ -584,4 +584,52 @@ class OperatorConsoleTest extends TestCase
         $this->makeTenant(['name' => 'Shared Bank', 'voice_mode' => 'shared', 'status' => 'active']);
         $this->as($this->op())->get('/admin/voice-numbers')->assertOk()->assertSee('Shared Bank')->assertSee('no active number');
     }
+
+    public function test_every_voice_callback_is_logged_with_a_reason_and_without_the_digits(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $token = $this->makeVoiceNumber('+2342017001724', $tenant);
+        $issued = $this->withToken($key)->postJson('/api/v1/codes', ['subscriber_reference' => 'sub-1', 'merchant_reference' => 'shop-1', 'amount_minor' => 10000, 'currency' => 'NGN'], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertCreated();
+        $code = $issued->json('code');
+
+        $this->dial('+2342017001724', $token, '')->assertOk();                                  // first step
+        $this->dial('+2342017001724', $token, '123456789012#')->assertOk();                     // wrong digits
+        $this->dial('+2342017001724', 'wrong-token', $code . '#')->assertForbidden();           // wrong token
+        $this->dial('+2347999999999', $token, $code . '#')->assertForbidden();                  // a number nobody registered
+        $this->dial('+2342017001724', $token, $code . '#')->assertOk();                         // the right code
+
+        $by = fn (string $outcome) => \App\Models\VoiceCallLog::where('outcome', $outcome)->get();
+        $this->assertCount(1, $by('prompt'));
+        $this->assertSame('unknown_code', $by('rejected')->first()->reason);
+        $this->assertSame(['wrong_token', 'number_not_registered'], \App\Models\VoiceCallLog::where('outcome', 'denied')->orderBy('id')->pluck('reason')->all());
+        $this->assertSame($tenant->id, $by('accepted')->first()->tenant_id);
+        $this->assertSame(12, $by('accepted')->first()->digits_length);
+        $this->assertStringNotContainsString($code, json_encode(\App\Models\VoiceCallLog::all()->toArray()), 'the code itself is never stored');
+
+        $owner = $this->op('finance');
+        $this->as($owner)->get('/admin/calls')->assertOk()->assertSee('wrong_token')->assertSee('number_not_registered')->assertSee('No open code matches these digits');
+        $this->as($owner)->get('/admin/calls?outcome=accepted')->assertOk()->assertDontSee('wrong_token');
+        $this->as($owner)->get('/admin/calls?hide_prompts=1')->assertOk();
+    }
+
+    public function test_a_refused_call_from_a_known_payer_tells_the_tenant_once_and_never_carries_the_digits(): void
+    {
+        Http::fake();
+        \Illuminate\Support\Facades\Queue::fake();
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);                                  // sub-1, phone +2348012345678
+        $token = $this->makeVoiceNumber('+2342017001724', $tenant);
+        app(TenantContext::class)->run($tenant, fn () => WebhookEndpoint::create(['url' => 'https://hooks.example.com/h', 'secret' => 'whsec_x']));
+
+        $this->dial('+2342017001724', $token, '123456789012#', '+2348012345678')->assertOk();   // wrong digits, from the payer
+        $this->dial('+2342017001724', $token, '123456789013#', '+2348012345678')->assertOk();   // again at once: not sent twice
+        $this->dial('+2342017001724', $token, '123456789014#', '+2348099999999')->assertOk();   // a stranger: nobody to tell
+
+        $events = WebhookDelivery::withoutGlobalScopes()->where('tenant_id', $tenant->id)->where('event_type', 'code.rejected')->get();
+        $this->assertCount(1, $events);
+        $data = $events->first()->payload['data'];
+        $this->assertSame(['voice', 'unknown_code', 'sub-1'], [$data['origin'], $data['reason'], $data['subscriber_reference']]);
+        $this->assertStringNotContainsString('1234567890', json_encode($events->first()->payload));
+    }
 }

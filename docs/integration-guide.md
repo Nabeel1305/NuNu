@@ -91,3 +91,11 @@ Errors look like `{"error": {"code": "...", "message": "..."}}`.
 ## Going live
 
 Live accounts are never settled by the simulator. The platform operator connects your settlement system before your account is switched to live. Your system must make `capture` safe to repeat for the same transaction reference and must be able to report what happened to a capture, because we ask when a result is lost.
+
+### `code.rejected` and refused calls
+
+`code.rejected` is sent when a genuine offline code is refused (a limit, a switched-off phone) and, since the call log was added, when **any** call is refused and its
+caller's phone is a payer you registered (`origin: "voice"`, a `reason`, the `subscriber_reference`, no digits, no amount). Use it to tell the payer. At most one per payer
+every two minutes, because a caller number can be faked. Reasons: `unknown_code`, `not_redeemable`, `expired`, `caller_mismatch`, `malformed`, `unknown_device`, `bad_signature`,
+`device_codes_disabled`, `direct_codes_disabled`, `counter_reused`, `amount_limit`, `daily_limit`, `device_revoked`.
+A call that never reaches the platform cannot be reported by it: time the call out on your side.

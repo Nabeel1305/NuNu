@@ -423,7 +423,7 @@ class CodeService
                 'amount_minor' => $f['amount'], 'currency' => $currency,
             ]);
 
-            return RedeemOutcome::rejected($reason);
+            return RedeemOutcome::rejected($reason, reported: true);
         };
 
         if ($f['amount'] < 1) {

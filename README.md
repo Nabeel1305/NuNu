@@ -102,6 +102,8 @@ Sign in at `/admin`. What each screen is for:
 |---|---|
 | **Overview** | Volume, success rate, stuck payments, failing webhooks, busiest tenants. |
 | **Payments** | Every tenant's payments: filters, stuck-only, detail with timeline, *re-check with the tenant*, *close as failed* (the tenant is asked first, so captured money is never marked failed), cancel an unredeemed code, CSV export. Search box in the header finds references, phones, accounts, phones' short ids and tenants. |
+| **Calls** | Every callback from the voice provider and what the platform did with it, with a plain-language reason for each refusal. The first place to look when a code "was not redeemed". Kept 30 days; the digits (payment codes) are never stored. |
+| **Voice numbers** | The shared pool and every tenant's numbers: add, change the number, enable/disable, move, delete, new callback URL. |
 | **Payers / Recipients / Phones** | Subscribers and merchants across tenants (auto-created `direct-…` recipients are marked), enrolled offline phones with *switch off* and CSV export. |
 | **Webhooks / Deliveries** | All endpoints (send test, pause, rotate secret) and deliveries (retry). |
 | **Tenants** | Search/filter/page, go-live checklist, typed confirmation to go live or archive, archive/restore, delete (only if no payment history), switch every portal user off, revoke all keys, API keys with expiry, IP limits and rotation with a grace period, voice numbers (move to another tenant or the pool, delete), shared-number short code, portal users (role, remove, last sign-in), view-as. |
@@ -112,7 +114,7 @@ Sign in at `/admin`. What each screen is for:
 
 Roles: **owner** everything; **support** looks, views as a user, fixes payments, retries webhooks, switches phones off, manages portal users; **finance** read only (dashboard, payments, reports).
 
-After pulling: `php artisan migrate --force`. Every existing operator becomes an **owner**. Keep the scheduler running (`php artisan schedule:work`): it expires codes, re-checks payments, sends alerts and writes the heartbeat the health page reads.
+After pulling: `php artisan migrate --force` (adds the operator tables and the call log). Every existing operator becomes an **owner**. Keep the scheduler running (`php artisan schedule:work`): it expires codes, re-checks payments, sends alerts and writes the heartbeat the health page reads.
 
 Alerts (stuck payments, failed payments, failing webhooks, failed jobs, a broken audit chain) go to Slack and/or email, once per problem and again after `PLATFORM_ALERT_REPEAT_HOURS`:
 

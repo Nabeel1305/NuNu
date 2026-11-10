@@ -4,6 +4,7 @@
 - Operators (owner, support, finance), password change, temporary passwords, sign out everywhere, idle timeout.
 - Platform audit log of every operator action and sign-in, with export.
 - Payments across tenants: search, filters, stuck payments, re-check, close as failed, cancel a code, CSV export.
+- Calls: every voice callback and what became of it (wrong token, unknown number, wrong digits, expired, caller mismatch…), digits never stored. Voice numbers page: edit, add, move, delete numbers including the shared pool.
 - Phones: list, revoke, export. Webhooks: endpoints, deliveries, retry, test, pause, rotate secret.
 - Dashboard, system health, alerts (Slack / email), platform settings.
 - Tenants: filters, go-live checklist, archive and delete, bulk actions, API key restrictions and rotation, voice number edit, reassign and delete, portal user roles.

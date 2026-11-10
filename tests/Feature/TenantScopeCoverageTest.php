@@ -23,6 +23,7 @@ class TenantScopeCoverageTest extends TestCase
         'audit_logs' => 'written only by AuditLogService, which is always given the tenant id',
         'platform_audit_logs' => 'operators\' own log, read only on the operator console; tenant_id is just a label for what they touched',
         'platform_audit_logs' => 'operator actions, written only by PlatformAudit; tenant_id is just a pointer to what the operator touched',
+        'voice_call_logs' => 'written by the voice callback before/without a tenant being known; only ever read by operators',
         'audit_chain_heads' => 'lock row addressed by tenant id inside AuditLogService; has no model',
     ];
 

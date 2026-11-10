@@ -10,6 +10,8 @@ final class RedeemOutcome
         public readonly bool $accepted,
         public readonly ?string $reason = null,
         public readonly ?PaymentCode $code = null,
+        /** The tenant has already been told about this refusal (a genuine device code that was refused). */
+        public readonly bool $reported = false,
     ) {
     }
 
@@ -19,8 +21,8 @@ final class RedeemOutcome
     }
 
     /** The reason is for logs and tests only; callers never hear it. */
-    public static function rejected(string $reason): self
+    public static function rejected(string $reason, bool $reported = false): self
     {
-        return new self(false, $reason);
+        return new self(false, $reason, null, $reported);
     }
 }

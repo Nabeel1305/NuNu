@@ -48,6 +48,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('deliveries', [Admin\WebhooksController::class, 'deliveries'])->name('deliveries.index');
             Route::get('deliveries/{delivery}', [Admin\WebhooksController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.show');
             Route::get('voice-numbers', [Admin\VoiceNumbersController::class, 'index'])->name('voice.index');
+            Route::get('calls', Admin\CallsController::class)->name('calls');
             Route::get('health', [Admin\HealthController::class, 'index'])->name('health');
             Route::get('changelog', Admin\ChangelogController::class)->name('changelog');
         });
