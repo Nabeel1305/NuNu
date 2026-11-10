@@ -47,6 +47,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('webhooks', [Admin\WebhooksController::class, 'endpoints'])->name('endpoints.index');
             Route::get('deliveries', [Admin\WebhooksController::class, 'deliveries'])->name('deliveries.index');
             Route::get('deliveries/{delivery}', [Admin\WebhooksController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.show');
+            Route::get('voice-numbers', [Admin\VoiceNumbersController::class, 'index'])->name('voice.index');
             Route::get('health', [Admin\HealthController::class, 'index'])->name('health');
             Route::get('changelog', Admin\ChangelogController::class)->name('changelog');
         });
@@ -106,6 +107,15 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('tenants/{tenant}/numbers/{number}/rotate-token', [TenantAccessController::class, 'rotateNumberToken'])->name('numbers.rotate');
             Route::post('tenants/{tenant}/numbers/{number}/reassign', [TenantAccessController::class, 'reassignNumber'])->name('numbers.reassign');
             Route::delete('tenants/{tenant}/numbers/{number}', [TenantAccessController::class, 'destroyNumber'])->name('numbers.destroy');
+        });
+
+        Route::middleware('admin.can:tenants')->prefix('voice-numbers')->name('voice.')->group(function () {
+            Route::post('/', [Admin\VoiceNumbersController::class, 'store'])->name('store');
+            Route::put('{number}', [Admin\VoiceNumbersController::class, 'update'])->whereNumber('number')->name('update');
+            Route::patch('{number}', [Admin\VoiceNumbersController::class, 'toggle'])->whereNumber('number')->name('toggle');
+            Route::post('{number}/rotate-token', [Admin\VoiceNumbersController::class, 'rotate'])->whereNumber('number')->name('rotate');
+            Route::post('{number}/reassign', [Admin\VoiceNumbersController::class, 'reassign'])->whereNumber('number')->name('reassign');
+            Route::delete('{number}', [Admin\VoiceNumbersController::class, 'destroy'])->whereNumber('number')->name('destroy');
         });
 
         // ── Run the platform (owner) ─────────────────────────────────────────

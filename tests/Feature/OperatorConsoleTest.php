@@ -541,4 +541,47 @@ class OperatorConsoleTest extends TestCase
         $this->as($this->op('finance'))->post("/admin/tenants/{$tenant->id}/portal-users/{$u->id}/impersonate", ['reason' => 'looking around'])->assertForbidden();
         $this->as($this->op('support'))->post("/admin/tenants/{$tenant->id}/portal-users/{$u->id}/impersonate", ['reason' => 'a customer ticket'])->assertRedirect(route('portal.dashboard'));
     }
+
+    public function test_voice_numbers_including_the_shared_pool_can_be_listed_added_changed_and_removed(): void
+    {
+        [$a] = $this->makeTenant(['voice_mode' => 'shared', 'status' => 'active']);
+        $pool = VoiceNumber::create(['tenant_id' => null, 'number' => '+2347000000099', 'webhook_token_hash' => hash('sha256', 'x')]);
+        $owner = $this->op();
+
+        $this->as($owner)->get('/admin/voice-numbers')->assertOk()->assertSee('+2347000000099')->assertSee('Shared pool');
+        $this->as($this->op('finance'))->get('/admin/voice-numbers')->assertOk()->assertSee('+2347000000099');
+        $this->as($this->op('finance'))->put("/admin/voice-numbers/{$pool->id}", ['number' => '+2342017001724'])->assertForbidden();
+
+        // Change the placeholder to the real number; the callback token (and so the provider's URL) is untouched.
+        $hash = $pool->webhook_token_hash;
+        $this->as($owner)->put("/admin/voice-numbers/{$pool->id}", ['number' => '+2342017001724'])->assertRedirect();
+        $this->assertSame('+2342017001724', $pool->fresh()->number);
+        $this->assertSame($hash, $pool->fresh()->webhook_token_hash);
+        $this->as($owner)->put("/admin/voice-numbers/{$pool->id}", ['number' => 'abc'])->assertSessionHasErrors('number');
+
+        // The dial details a payer gets now carry the real number.
+        $this->assertSame('+2342017001724', VoiceNumber::forDialing($a->fresh())->e164());
+
+        // Add one to the pool and one to a tenant; each shows its callback URL once.
+        $this->as($owner)->post('/admin/voice-numbers', ['number' => '+2347000000123', 'owner' => 'pool'])->assertRedirect();
+        $this->assertStringContainsString('/api/voice/africastalking?token=', session('secret')['value']);
+        $this->as($owner)->post('/admin/voice-numbers', ['number' => '+2347000000123', 'owner' => 'pool'])->assertSessionHasErrors('number');
+        $this->as($owner)->post('/admin/voice-numbers', ['number' => '+2347000000124', 'owner' => (string) $a->id])->assertRedirect();
+        $own = VoiceNumber::where('number', '+2347000000124')->first();
+        $this->assertSame($a->id, $own->tenant_id);
+        $this->assertTrue(\App\Models\AuditLog::where('tenant_id', $a->id)->where('event_type', 'admin.number_added')->exists());
+
+        $this->as($owner)->patch("/admin/voice-numbers/{$own->id}")->assertRedirect();
+        $this->assertFalse($own->fresh()->active);
+        $this->as($owner)->post("/admin/voice-numbers/{$own->id}/reassign", ['to' => 'pool'])->assertRedirect();
+        $this->assertNull($own->fresh()->tenant_id);
+        $this->as($owner)->delete("/admin/voice-numbers/{$own->id}")->assertRedirect();
+        $this->assertNull(VoiceNumber::find($own->id));
+    }
+
+    public function test_the_voice_numbers_page_warns_when_a_shared_tenant_has_no_number_to_ring(): void
+    {
+        $this->makeTenant(['name' => 'Shared Bank', 'voice_mode' => 'shared', 'status' => 'active']);
+        $this->as($this->op())->get('/admin/voice-numbers')->assertOk()->assertSee('Shared Bank')->assertSee('no active number');
+    }
 }

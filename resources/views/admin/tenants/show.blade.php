@@ -158,14 +158,14 @@
 
 <div class="card mb-4">
     <div class="card-header"><span class="section-title mb-0 mt-0"><i class="ti ti-phone-call"></i>Voice numbers</span></div>
-    @if ($tenant->voice_mode === 'shared')<div class="card-body pb-0"><p class="text-muted mb-0">This tenant uses the shared pool. Add shared numbers from the command line: <code>voice-number:add</code> with no tenant.</p></div>@endif
+    @if ($tenant->voice_mode === 'shared')<div class="card-body pb-0"><p class="text-muted mb-0">This tenant uses the shared pool. Manage the pool's numbers on the <a href="{{ route('admin.voice.index', ['owner' => 'pool']) }}">Voice numbers</a> page.</p></div>@endif
     <div class="table-responsive">
         <table class="table">
             <thead><tr><th>Number</th><th>Provider</th><th>Active</th><th class="text-end"></th></tr></thead>
             <tbody>
             @forelse ($numbers as $number)
                 <tr>
-                    <td>{{ $number->number }}</td><td>{{ $number->provider }}</td>
+                    <td>@if($can->can('tenants'))<form method="post" action="{{ route('admin.voice.update', $number) }}" class="d-inline-flex gap-1" data-confirm="Calls to {{ $number->number }} stop being handled. Point the provider at the new number first." data-confirm-label="Change number">@csrf @method('PUT')<input name="number" value="{{ $number->number }}" class="form-control form-control-sm" style="width:12rem" aria-label="Number" required pattern="\+?\d{7,15}"><button class="btn btn-sm btn-brand-outline">Change</button></form>@else{{ $number->number }}@endif</td><td>{{ $number->provider }}</td>
                     <td><span class="{{ $number->active ? 'badge-success-soft' : 'badge-danger-soft' }}">{{ $number->active ? 'yes' : 'no' }}</span></td>
                     <td class="text-end">
                         <form class="d-inline" method="post" action="{{ route('admin.numbers.toggle', [$tenant, $number]) }}">@csrf @method('PATCH')<button class="btn btn-sm btn-brand-outline">{{ $number->active ? 'Disable' : 'Enable' }}</button></form>

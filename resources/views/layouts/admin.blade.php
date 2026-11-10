@@ -34,6 +34,7 @@
         ]],
         ['label' => 'Platform', 'items' => [
             ['label' => 'Tenants', 'icon' => 'ti-building', 'route' => 'admin.tenants.index', 'match' => ['admin.tenants.*', 'admin.keys.*', 'admin.numbers.*', 'admin.portal-users.*'], 'can' => 'view'],
+            ['label' => 'Voice numbers', 'icon' => 'ti-phone-call', 'route' => 'admin.voice.index', 'match' => ['admin.voice.*'], 'can' => 'view'],
             ['label' => 'Operators', 'icon' => 'ti-user-shield', 'route' => 'admin.operators.index', 'match' => ['admin.operators.*'], 'can' => 'operators'],
             ['label' => 'Audit log', 'icon' => 'ti-history', 'route' => 'admin.audit', 'match' => ['admin.audit*'], 'can' => 'audit'],
             ['label' => 'Settings', 'icon' => 'ti-settings', 'route' => 'admin.settings', 'match' => ['admin.settings*'], 'can' => 'settings'],
