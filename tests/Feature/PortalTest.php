@@ -512,4 +512,34 @@ class PortalTest extends TestCase
         $this->assertStringNotContainsString('unsafe-inline', explode('style-src', $csp)[0]);
         $this->assertStringNotContainsString("script-src", $csp);
     }
+
+    public function test_the_owner_can_switch_direct_offline_payments_on_and_set_a_cap_within_the_operators_cap(): void
+    {
+        [$tenant] = $this->makeTenant(['settings' => ['device_codes' => ['enabled' => true, 'max_amount_minor' => 300000]]]);
+        $this->actingAs($this->user($tenant), 'tenant');
+
+        $this->get('/portal/settings')->assertOk()->assertSee('Pay any account with no connection');
+
+        $this->put('/portal/settings/direct-codes', ['direct_enabled' => '1', 'direct_max_naira' => '2000'])->assertRedirect();
+        $s = \App\Services\Offline\DeviceCodeSettings::for($tenant->fresh());
+        $this->assertTrue($s->directEnabled);
+        $this->assertSame(200000, $s->directMaxAmountMinor);
+
+        $this->put('/portal/settings/direct-codes', ['direct_enabled' => '1', 'direct_max_naira' => '3001'])->assertSessionHasErrors('direct_max_naira');
+        $this->put('/portal/settings/direct-codes', ['direct_max_naira' => '2000']);
+        $this->assertFalse(\App\Services\Offline\DeviceCodeSettings::for($tenant->fresh())->directEnabled);
+        $this->assertTrue(\App\Models\AuditLog::withoutGlobalScopes()->where('tenant_id', $tenant->id)->where('event_type', 'tenant.direct_codes_changed')->exists());
+    }
+
+    public function test_only_an_owner_can_change_it_and_only_when_offline_codes_are_on(): void
+    {
+        [$tenant] = $this->makeTenant(['settings' => ['device_codes' => ['enabled' => true]]]);
+        $this->actingAs($this->user($tenant, 'developer'), 'tenant');
+        $this->put('/portal/settings/direct-codes', ['direct_enabled' => '1'])->assertForbidden();
+        $this->get('/portal/settings')->assertOk()->assertDontSee('Largest payment to an account not looked up');
+
+        [$off] = $this->makeTenant();
+        $this->actingAs($this->user($off), 'tenant');
+        $this->put('/portal/settings/direct-codes', ['direct_enabled' => '1'])->assertForbidden();
+    }
 }

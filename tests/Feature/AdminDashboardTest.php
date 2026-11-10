@@ -164,4 +164,18 @@ class AdminDashboardTest extends TestCase
 
         $this->getJson('/api/v1/codes/x')->assertHeader('X-Content-Type-Options', 'nosniff')->assertHeaderMissing('Content-Security-Policy');
     }
+
+    public function test_the_operator_saving_a_tenant_keeps_the_banks_own_direct_payment_choices(): void
+    {
+        [$tenant] = $this->makeTenant(['settings' => ['device_codes' => ['enabled' => true, 'direct_enabled' => true, 'direct_max_amount_minor' => 12345]]]);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->put("/admin/tenants/{$tenant->id}", $this->settings(['device_codes_enabled' => '1', 'device_max_amount_minor' => 900000]))
+            ->assertSessionHasNoErrors();
+
+        $s = \App\Services\Offline\DeviceCodeSettings::for($tenant->fresh());
+        $this->assertTrue($s->directEnabled);
+        $this->assertSame(12345, $s->directMaxAmountMinor);
+        $this->assertSame(900000, $s->maxAmountMinor);
+    }
 }

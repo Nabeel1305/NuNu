@@ -72,6 +72,12 @@ class DeviceController extends Controller
             // The caps the platform will apply, so the phone can refuse a payment it knows would be turned down.
             'max_amount_minor' => DeviceCodeSettings::for($tenant)->maxAmountMinor,
             'daily_limit_minor' => DeviceCodeSettings::for($tenant)->dailyLimitMinor,
+            // Paying any account with no earlier lookup (45-digit codes): only when the tenant has switched it on.
+            'direct_codes' => [
+                'enabled' => DeviceCodeSettings::for($tenant)->directEnabled,
+                'max_amount_minor' => DeviceCodeSettings::for($tenant)->directMaxAmountMinor,
+                'code_length' => DeviceCodeFormat::DIRECT_LENGTH,
+            ],
         ], $status);
     }
 

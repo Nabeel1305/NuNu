@@ -55,6 +55,28 @@ export function buildDeviceCode({ deviceKey, deviceShortId, counter, amountMinor
   return '1' + deviceShortId + String(counter).padStart(5, '0') + String(amountMinor).padStart(8, '0') + merchantShortId + String(value).padStart(10, '0');
 }
 
+/**
+ * Build the 45-digit "direct" code: the recipient's bank and account number travel in the code, so a phone can pay
+ * an account it has never looked up. The tenant must have switched direct codes on (see `direct_codes` in the
+ * enrolDevice() response, which also gives the cap). Nothing confirms the account holder's name offline.
+ */
+export function buildDirectDeviceCode({ deviceKey, deviceShortId, counter, amountMinor, source, destination, currency = 'NGN', now = Math.floor(Date.now() / 1000) }) {
+  if (!/^\d{8}$/.test(deviceShortId)) throw new RangeError('deviceShortId must be 8 digits');
+  if (!/^\d{3}$/.test(destination.bankCode) || !/^\d{10}$/.test(destination.accountNumber)) throw new RangeError('destination needs a 3-digit bank code and a 10-digit account number');
+  if (!Number.isInteger(counter) || counter < 1 || counter > 99999) throw new RangeError('counter must be 1..99999');
+  if (!Number.isInteger(amountMinor) || amountMinor < 1 || amountMinor > 99999999) throw new RangeError('amountMinor must be 1..99999999');
+
+  const key = Buffer.isBuffer(deviceKey) ? deviceKey : Buffer.from(deviceKey, 'base64');
+  const window = Math.floor(now / WINDOW_SECONDS);
+  const canonical = ['nunu-d2', deviceShortId, counter, amountMinor, window, currency.toUpperCase(),
+    source.accountNumber, source.bankCode, destination.accountNumber, destination.bankCode].join('|');
+
+  const mac = createHmac('sha256', key).update(canonical).digest();
+  const value = mac.readUIntBE(0, 5) % 10_000_000_000;
+
+  return '2' + deviceShortId + String(counter).padStart(5, '0') + String(amountMinor).padStart(8, '0') + destination.bankCode + destination.accountNumber + String(value).padStart(10, '0');
+}
+
 /** Number, pauses, code and "#": what a dialler needs. On a shared voice number pass the tenant's 4-digit short code as `prefix`. */
 export function dialString(voiceNumber, code, prefix = '') {
   return `${voiceNumber},,${prefix}${code}#`;

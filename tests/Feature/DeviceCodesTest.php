@@ -545,4 +545,99 @@ class DeviceCodesTest extends TestCase
         $this->assertSame('+2347000000099', $res->json('voice_number'));
         $this->assertSame((string) $shared->short_code, $res->json('dial_prefix'));
     }
+
+    // ── direct codes: paying an account the phone never looked up ──────────────
+
+    private function directCode(array $w, int $counter = 1, int $amount = 100000, string $bank = '057', string $account = '4000000009', array $over = []): string
+    {
+        return DeviceCodeFormat::buildDirect(base64_decode($w['key']), $over['device'] ?? $w['short'], $counter, $amount, $over['at'] ?? now()->timestamp, 'NGN', '2000000001', '058', $account, $bank);
+    }
+
+    public function test_a_direct_code_pays_an_account_nobody_registered_and_records_it_as_a_recipient(): void
+    {
+        [$tenant, , $token, $w] = $this->world([], ['enabled' => true, 'direct_enabled' => true]);
+        $code = $this->directCode($w);
+        $this->assertSame(45, strlen($code));
+
+        $this->ring($token, $code)->assertOk()->assertSee('Thank you', false);
+
+        $tx = Transaction::withoutGlobalScopes()->where('tenant_id', $tenant->id)->first();
+        $this->assertSame('settled', $tx->status);
+        $pc = PaymentCode::withoutGlobalScopes()->find($tx->payment_code_id);
+        $this->assertSame(['2000000001', '058', '4000000009', '057'], [$pc->source_account_number, $pc->source_bank_code, $pc->destination_account_number, $pc->destination_bank_code]);
+        $this->assertSame('direct-057-4000000009', $pc->merchant->reference);
+        $this->assertSame(1, OfflineDevice::withoutGlobalScopes()->where('short_id', $w['short'])->value('last_counter'));
+
+        // The same code cannot be used twice, and a second payment to the same account reuses the recipient.
+        $this->ring($token, $code);
+        $this->assertSame(1, $this->txCount($tenant));
+        $this->ring($token, $this->directCode($w, 2));
+        $this->assertSame(2, $this->txCount($tenant));
+        $this->assertSame(1, \App\Models\Merchant::withoutGlobalScopes()->where('tenant_id', $tenant->id)->where('reference', 'direct-057-4000000009')->count());
+    }
+
+    public function test_direct_codes_are_refused_and_reported_unless_the_bank_switched_them_on(): void
+    {
+        [$tenant, , $token, $w] = $this->world();
+        app(TenantContext::class)->run($tenant, fn () => WebhookEndpoint::create(['url' => 'https://hooks.example.com/h', 'secret' => 'whsec_x']));
+
+        $this->ring($token, $this->directCode($w))->assertOk();
+
+        $this->assertSame(0, $this->txCount($tenant));
+        $this->assertSame('direct_codes_disabled', $this->events($tenant, 'code.rejected')->first()->payload['data']['reason']);
+        $this->assertSame(0, \App\Models\Merchant::withoutGlobalScopes()->where('reference', 'like', 'direct-%')->count(), 'a refused code creates no recipient');
+    }
+
+    public function test_direct_codes_have_their_own_lower_cap_that_never_exceeds_the_overall_one(): void
+    {
+        [$tenant, , $token, $w] = $this->world([], ['enabled' => true, 'direct_enabled' => true, 'direct_max_amount_minor' => 50000, 'max_amount_minor' => 300000]);
+
+        $this->ring($token, $this->directCode($w, 1, 50001));
+        $this->assertSame(0, $this->txCount($tenant));
+        $this->ring($token, $this->directCode($w, 1, 50000));
+        $this->assertSame(1, $this->txCount($tenant));
+        $this->ring($token, $this->code($w, 2, 250000));      // the old format keeps its own, higher cap
+        $this->assertSame(2, $this->txCount($tenant));
+
+        $s = \App\Services\Offline\DeviceCodeSettings::for($tenant->fresh());
+        $tenant->update(['settings' => ['device_codes' => ['enabled' => true, 'direct_enabled' => true, 'direct_max_amount_minor' => 9000000, 'max_amount_minor' => 300000]]]);
+        $this->assertSame(300000, \App\Services\Offline\DeviceCodeSettings::for($tenant->fresh())->directMaxAmountMinor);
+    }
+
+    public function test_a_direct_code_cannot_be_re_pointed_at_another_account_or_bank_or_amount(): void
+    {
+        [$tenant, , $token, $w] = $this->world([], ['enabled' => true, 'direct_enabled' => true]);
+        $code = $this->directCode($w);
+
+        foreach ([
+            substr($code, 0, 14) . '00200000' . substr($code, 22),                                  // another amount
+            substr($code, 0, 22) . '044' . substr($code, 25),                                        // another bank
+            substr($code, 0, 25) . '4000000008' . substr($code, 35),                                 // another account
+            $this->directCode($w, 1, 100000, '057', '4000000009', ['at' => now()->timestamp + 3600]), // another window
+        ] as $bad) {
+            $this->ring($token, $bad);
+        }
+        $this->assertSame(0, $this->txCount($tenant));
+        $this->assertSame(0, \App\Models\Merchant::withoutGlobalScopes()->where('reference', 'like', 'direct-%')->count());
+
+        $this->ring($token, $code);
+        $this->assertSame(1, $this->txCount($tenant));
+    }
+
+    public function test_a_shared_number_tenant_prefixes_direct_codes_too(): void
+    {
+        [$tenant, , $token, $w] = $this->world(['voice_mode' => 'shared'], ['enabled' => true, 'direct_enabled' => true]);
+        $this->ring($token, $tenant->short_code . $this->directCode($w))->assertOk();
+        $this->assertSame(1, $this->txCount($tenant));
+    }
+
+    public function test_enrolment_tells_the_phone_about_direct_codes(): void
+    {
+        [$tenant, $key] = $this->makeTenant(['settings' => ['device_codes' => ['enabled' => true, 'direct_enabled' => true, 'direct_max_amount_minor' => 70000]]]);
+        $this->seedParties($tenant);
+
+        $this->withToken($key)->postJson('/api/v1/subscribers/sub-1/devices', ['device_id' => 'install-0001'])
+            ->assertCreated()
+            ->assertJsonPath('direct_codes', ['enabled' => true, 'max_amount_minor' => 70000, 'code_length' => 45]);
+    }
 }

@@ -66,6 +66,7 @@ Route::prefix('portal')->name('portal.')->group(function () {
         Route::middleware('portal.2fa')->group(function () {
             Route::get('/', Portal\DashboardController::class)->name('dashboard');
             Route::get('settings', Portal\SettingsController::class)->name('settings');
+            Route::put('settings/direct-codes', [Portal\SettingsController::class, 'updateDirectCodes'])->name('settings.direct-codes')->middleware('portal.can:manage_settings');
 
             Route::middleware('portal.can:money')->group(function () {
                 Route::get('transactions', [Portal\TransactionsController::class, 'index'])->name('transactions.index');

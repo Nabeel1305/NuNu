@@ -49,6 +49,8 @@ If your customers must be able to start a payment with no connection at all, enr
 
 The phone signs `amount`, `merchant`, a counter and a time window together with both accounts' details, and dials the 40 digits. We verify it, then hold and capture in one step, so your `hold` must be idempotent on the code's id. Nothing is reserved while the phone is offline: the caps on the account bound your exposure, and `code.rejected` tells you when a genuine code was refused. Off by default; ask the platform operator to enable it.
 
+**Paying an account the phone never looked up.** A 45-digit *direct* code carries the recipient's 3-digit bank code and 10-digit account number instead of a merchant id (`buildDirectDeviceCode` in `clients/js`). You switch it on, and set its own cap (never above the overall offline cap), in the portal under Settings; the enrolment response tells the phone whether it is on (`direct_codes`). The recipient is recorded as a merchant with reference `direct-<bank>-<account>` the first time. Nothing confirms the account holder's name offline, so keep the cap modest and show the payer the account number before they dial.
+
 ## Handle webhooks
 
 Every delivery carries `Offline-Signature: t=<seconds>,v1=<hex>`. Verify it before trusting the body:

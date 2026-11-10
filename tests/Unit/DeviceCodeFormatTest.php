@@ -66,4 +66,18 @@ class DeviceCodeFormatTest extends TestCase
             $this->assertNotSame(substr($base, 30), substr($v, 30), "variant {$i} produced the same MAC");
         }
     }
+
+    public function test_direct_known_vector_and_shape(): void
+    {
+        $code = F::buildDirect(self::KEY, '48201937', 42, 250000, self::TS, 'NGN', '2000000001', '058', '3000000001', '011');
+
+        $this->assertSame(45, strlen($code));
+        $this->assertSame('nunu-d2|48201937|42|250000|5972000|NGN|2000000001|058|3000000001|011',
+            F::canonicalDirect('48201937', 42, 250000, F::window(self::TS), 'ngn', '2000000001', '058', '3000000001', '011'));
+        $this->assertSame(['version' => '2', 'device' => '48201937', 'counter' => 42, 'amount' => 250000, 'bank' => '011', 'account' => '3000000001', 'mac' => substr($code, 35)], F::parseDirect($code));
+        $this->assertNull(F::parse($code), 'a direct code is not a version-1 code');
+        $this->assertNull(F::parseDirect('1' . substr($code, 1)));
+        // Pinned: client libraries must produce exactly these digits (clients/js and the Demo Bank app test the same vector).
+        $this->assertSame('248201937000420025000001130000000012139361759', $code);
+    }
 }

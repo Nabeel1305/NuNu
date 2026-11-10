@@ -111,6 +111,12 @@ class TenantController extends Controller
                 $device[$key] = (int) $data[$field];
             }
         }
+        // The bank's own choices (set in its portal) survive the operator saving this form.
+        foreach (['direct_enabled', 'direct_max_amount_minor'] as $kept) {
+            if (($existing = $tenant->setting("device_codes.$kept")) !== null) {
+                $device[$kept] = $existing;
+            }
+        }
         $settings['device_codes'] = $device;
 
         $before = $tenant->only(['status', 'environment', 'settlement_adapter', 'voice_mode', 'code_ttl_minutes', 'bind_caller']) + ['device_codes' => $tenant->setting('device_codes')];

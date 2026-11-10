@@ -348,16 +348,18 @@ class CodeService
     /** Reasons that mean "this did not prove it came from an enrolled phone", i.e. a possible guess. */
     private const GUESS_REASONS = ['device_codes_disabled', 'malformed', 'unknown_device', 'bad_signature'];
 
-    /** The 40 digits of a device-signed code, or null when these digits are not one. */
+    /** The digits of a device-signed code (40, or 45 for a direct one), or null when these digits are not one. */
     private function deviceDigits(Tenant $tenant, string $digits): ?string
     {
+        $lengths = [DeviceCodeFormat::LENGTH, DeviceCodeFormat::DIRECT_LENGTH];
+
         if ($tenant->usesSharedNumber()) {
-            return strlen($digits) === 4 + DeviceCodeFormat::LENGTH && str_starts_with($digits, (string) $tenant->short_code)
+            return in_array(strlen($digits) - 4, $lengths, true) && str_starts_with($digits, (string) $tenant->short_code)
                 ? substr($digits, 4)
                 : null;
         }
 
-        return strlen($digits) === DeviceCodeFormat::LENGTH ? $digits : null;
+        return in_array(strlen($digits), $lengths, true) ? $digits : null;
     }
 
     /**
@@ -371,43 +373,54 @@ class CodeService
             return RedeemOutcome::rejected('device_codes_disabled');
         }
 
-        $f = DeviceCodeFormat::parse($digits);
+        $direct = strlen($digits) === DeviceCodeFormat::DIRECT_LENGTH;
+        $f = $direct ? DeviceCodeFormat::parseDirect($digits) : DeviceCodeFormat::parse($digits);
         if ($f === null) {
             return RedeemOutcome::rejected('malformed');
         }
 
         $device = OfflineDevice::where('short_id', $f['device'])->where('status', 'active')->first();
-        $merchant = Merchant::where('short_id', $f['merchant'])->first();
+        $merchant = $direct ? null : Merchant::where('short_id', $f['merchant'])->first();
         $subscriber = $device?->subscriber;
 
         // Anything unknown looks the same as a wrong signature: no hint which part was wrong.
-        if (! $device || ! $merchant || ! $subscriber || blank($subscriber->account_number) || blank($merchant->account_number)) {
+        if (! $device || (! $direct && ! $merchant) || ! $subscriber || blank($subscriber->account_number) || ($merchant && blank($merchant->account_number))) {
             return RedeemOutcome::rejected('unknown_device');
         }
 
-        // The signature covers the account details the server holds, so a code can't be re-pointed.
+        // The signature covers the account details (the server's own for the payer, and the merchant's or, in a direct code,
+        // the ones dialled), so a code can't be re-pointed.
         $key = $this->deviceKeys->derive($device);
         $currency = strtoupper((string) config('platform.device_codes.currency'));
         $window = DeviceCodeFormat::window(now()->timestamp);
         $valid = false;
         foreach ([$window, $window - 1, $window + 1] as $w) {     // no early exit, so timing does not reveal which matched
-            $canonical = DeviceCodeFormat::canonical(
-                $device->short_id, $f['counter'], $f['amount'], $merchant->short_id, $w, $currency,
-                $subscriber->account_number, $subscriber->bank_code, $merchant->account_number, $merchant->bank_code,
-            );
+            $canonical = $direct
+                ? DeviceCodeFormat::canonicalDirect(
+                    $device->short_id, $f['counter'], $f['amount'], $w, $currency,
+                    $subscriber->account_number, $subscriber->bank_code, $f['account'], $f['bank'],
+                )
+                : DeviceCodeFormat::canonical(
+                    $device->short_id, $f['counter'], $f['amount'], $merchant->short_id, $w, $currency,
+                    $subscriber->account_number, $subscriber->bank_code, $merchant->account_number, $merchant->bank_code,
+                );
             $valid = hash_equals(DeviceCodeFormat::mac($key, $canonical), $f['mac']) || $valid;
         }
         if (! $valid) {
             return RedeemOutcome::rejected('bad_signature');
         }
 
+        // A direct code names its recipient by account number alone. The platform records it as a merchant the first time,
+        // but only now that the code has proved it came from an enrolled phone.
+        $directMerchantRef = $direct ? "direct-{$f['bank']}-{$f['account']}" : null;
+
         // From here the code is genuine: a refusal is reported to the tenant, never to the caller.
-        $refuse = function (string $reason) use ($tenant, $device, $subscriber, $merchant, $f, $currency): RedeemOutcome {
+        $refuse = function (string $reason) use ($tenant, $device, $subscriber, $merchant, $directMerchantRef, $f, $currency): RedeemOutcome {
             $this->audit->record($tenant->id, 'device_code.rejected', 'device', $device->id, OfflineDevice::class, $device->id,
                 "Genuine offline code refused: {$reason}", ['reason' => $reason, 'amount_minor' => $f['amount']], $device->short_id);
             $this->webhooks->dispatch($tenant, 'code.rejected', [
                 'origin' => 'device', 'reason' => $reason, 'device_id' => $device->device_id,
-                'subscriber_reference' => $subscriber->reference, 'merchant_reference' => $merchant->reference,
+                'subscriber_reference' => $subscriber->reference, 'merchant_reference' => $merchant?->reference ?? $directMerchantRef,
                 'amount_minor' => $f['amount'], 'currency' => $currency,
             ]);
 
@@ -416,6 +429,20 @@ class CodeService
 
         if ($f['amount'] < 1) {
             return $refuse('amount_invalid');
+        }
+        if ($direct && ! $settings->directEnabled) {
+            return $refuse('direct_codes_disabled');
+        }
+        if ($direct && $f['amount'] > $settings->directMaxAmountMinor) {
+            return $refuse('amount_limit');
+        }
+
+        if ($direct) {
+            $merchant = Merchant::firstOrCreate(
+                ['reference' => $directMerchantRef],
+                ['name' => 'Account ' . $f['bank'] . '/••••' . substr($f['account'], -4), 'account_reference' => $directMerchantRef,
+                    'account_number' => $f['account'], 'bank_code' => $f['bank']],
+            );
         }
 
         $result = DB::transaction(function () use ($tenant, $device, $subscriber, $merchant, $f, $currency, $settings, $callerNumber, $digits) {

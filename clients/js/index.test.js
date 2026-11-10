@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { Client, ApiError, verifyWebhook, buildDeviceCode, dialString } from './index.js';
+import { Client, ApiError, verifyWebhook, buildDeviceCode, buildDirectDeviceCode, dialString } from './index.js';
 
 const reply = (status, body) => async (url, init) => {
   reply.last = { url, init };
@@ -118,4 +118,11 @@ test('device endpoints use the right paths', async () => {
   assert.equal(reply.last.init.method, 'DELETE');
   await client.getMerchant('shop-1');
   assert.equal(reply.last.url, 'https://api.test/merchants/shop-1');
+});
+
+test('direct device codes match the server test vector byte for byte', () => {
+  const code = buildDirectDeviceCode({ ...VECTOR, deviceShortId: '48201937', counter: 42, amountMinor: 250000 });
+  assert.equal(code, '248201937000420025000001130000000012139361759');
+  assert.equal(code.length, 45);
+  assert.throws(() => buildDirectDeviceCode({ ...VECTOR, deviceShortId: '48201937', counter: 1, amountMinor: 1, destination: { accountNumber: '123', bankCode: '011' } }), RangeError);
 });

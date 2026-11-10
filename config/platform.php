@@ -28,6 +28,7 @@ return [
     // Each tenant can override them (and must be switched on) in the operator console.
     'device_codes' => [
         'max_amount_minor' => (int) env('PLATFORM_DEVICE_CODE_MAX_AMOUNT_MINOR', 2_000_000),      // ₦20,000 per payment
+        'direct_max_amount_minor' => (int) env('PLATFORM_DEVICE_CODE_DIRECT_MAX_AMOUNT_MINOR', 500_000),  // ₦5,000 to an account the phone never looked up
         'daily_limit_minor' => (int) env('PLATFORM_DEVICE_CODE_DAILY_LIMIT_MINOR', 5_000_000),    // ₦50,000 per subscriber per day
         'max_devices_per_subscriber' => (int) env('PLATFORM_DEVICE_CODE_MAX_DEVICES', 5),
         'currency' => env('PLATFORM_DEVICE_CODE_CURRENCY', 'NGN'),

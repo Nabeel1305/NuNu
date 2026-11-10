@@ -17,12 +17,12 @@ class TenantUser extends Authenticatable
     public const ROLES = ['owner', 'developer', 'viewer'];
 
     /**
-     * owner     everything, including the team and cancelling codes
+     * owner     everything, including the team, cancelling codes and the bank's own payment settings
      * developer keys, webhooks and delivery logs; no money views
      * viewer    read-only: transactions, codes, parties, audit, delivery logs
      */
     private const ABILITIES = [
-        'owner' => ['money', 'developer_view', 'manage_keys', 'manage_webhooks', 'audit', 'team', 'cancel_code'],
+        'owner' => ['money', 'developer_view', 'manage_keys', 'manage_webhooks', 'audit', 'team', 'cancel_code', 'manage_settings'],
         'developer' => ['developer_view', 'manage_keys', 'manage_webhooks'],
         'viewer' => ['money', 'developer_view', 'audit'],
     ];
