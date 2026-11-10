@@ -15,6 +15,12 @@
 </head>
 <body class="portal-theme">
 <a href="#main" class="skip-link">Skip to content</a>
+@if(!empty($impersonation))
+<div class="alert alert-warning rounded-0 mb-0 py-2 d-flex flex-wrap gap-2 justify-content-center align-items-center" role="status" id="impersonation-banner" style="position:sticky;top:0;z-index:1100">
+    <span><i class="ti ti-eye" aria-hidden="true"></i> Viewing as <strong>{{ auth('tenant')->user()->name }}</strong> ({{ auth('tenant')->user()->role }}). Look-only, ends {{ \Illuminate\Support\Carbon::createFromTimestamp($impersonation['expires_at'])->format('H:i') }}. Reason: {{ $impersonation['reason'] }}</span>
+    <form method="post" action="{{ route('portal.impersonation.stop') }}" class="m-0">@csrf<button class="btn btn-sm btn-dark">Stop viewing</button></form>
+</div>
+@endif
 @php
     $me = auth('tenant')->user();
     $meInitial = strtoupper(mb_substr($me->name ?? 'U', 0, 1));

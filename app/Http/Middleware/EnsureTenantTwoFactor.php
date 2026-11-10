@@ -13,7 +13,8 @@ class EnsureTenantTwoFactor
     {
         $user = $request->user('tenant');
 
-        if ($user && EnsureTwoFactor::required() && ! $user->hasTwoFactor()) {
+        // An operator viewing as this person has passed their own two-factor check; the person's setup is not theirs to do.
+        if ($user && ! \App\Support\Impersonation::current($request) && EnsureTwoFactor::required() && ! $user->hasTwoFactor()) {
             return redirect()->route('portal.account')->with('status', 'Set up two-factor authentication to continue.');
         }
 

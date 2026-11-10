@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'portal.context' => \App\Http\Middleware\PortalContext::class,
+            'portal.impersonation' => \App\Http\Middleware\ImpersonationGuard::class,
             'portal.2fa' => \App\Http\Middleware\EnsureTenantTwoFactor::class,
             'portal.can' => \App\Http\Middleware\PortalAbility::class,
         ]);

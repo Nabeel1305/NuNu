@@ -43,6 +43,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::post('tenants/{tenant}/portal-users/{user}/access-link', [TenantUserController::class, 'reinvite'])->name('portal-users.reinvite');
         Route::post('tenants/{tenant}/portal-users/{user}/reset-2fa', [TenantUserController::class, 'resetTwoFactor'])->name('portal-users.reset-2fa');
         Route::patch('tenants/{tenant}/portal-users/{user}', [TenantUserController::class, 'toggle'])->name('portal-users.toggle');
+        Route::post('tenants/{tenant}/portal-users/{user}/impersonate', [TenantUserController::class, 'impersonate'])->name('portal-users.impersonate')->middleware('throttle:10,1');
     });
 });
 
@@ -57,8 +58,9 @@ Route::prefix('portal')->name('portal.')->group(function () {
     Route::get('invite/{token}', [Portal\AuthController::class, 'invitation'])->name('invitation')->middleware('throttle:20,1');
     Route::post('invite/{token}', [Portal\AuthController::class, 'accept'])->name('invitation.accept')->middleware('throttle:10,1');
 
-    Route::middleware(['auth:tenant', 'portal.context'])->group(function () {
+    Route::middleware(['auth:tenant', 'portal.context', 'portal.impersonation'])->group(function () {
         Route::post('logout', [Portal\AuthController::class, 'logout'])->name('logout');
+        Route::post('impersonation/stop', [Portal\ImpersonationController::class, 'stop'])->name('impersonation.stop');
         Route::get('account', [Portal\AccountController::class, 'show'])->name('account');
         Route::post('account/two-factor', [Portal\AccountController::class, 'confirmTwoFactor'])->name('account.two-factor');
         Route::post('account/password', [Portal\AccountController::class, 'updatePassword'])->name('account.password');

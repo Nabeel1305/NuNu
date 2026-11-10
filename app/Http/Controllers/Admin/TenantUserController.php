@@ -51,6 +51,24 @@ class TenantUserController extends Controller
         return back()->with('status', 'Two-factor reset.');
     }
 
+    /**
+     * Look at the portal as this person sees it, to help with a support request. Look-only, 30 minutes at most, needs a
+     * reason, and is written to the tenant's own audit log.
+     */
+    public function impersonate(Request $request, Tenant $tenant, int $user): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:300']]);
+        $target = $this->find($tenant, $user);
+
+        if (! $target->is_active || ! $target->hasAccepted()) {
+            return back()->withErrors(['reason' => 'That person is switched off or has not accepted their invitation yet.']);
+        }
+
+        \App\Support\Impersonation::start($request, $this->audit, $request->user('admin'), $tenant, $target, $data['reason']);
+
+        return redirect()->route('portal.dashboard');
+    }
+
     public function toggle(Request $request, Tenant $tenant, int $user): RedirectResponse
     {
         $target = $this->find($tenant, $user);
