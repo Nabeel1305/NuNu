@@ -55,6 +55,7 @@ class HealthController extends Controller
 
         $add('Device key secret', filled(config('platform.device_key_secret')) ? 'ok' : 'warn', filled(config('platform.device_key_secret')) ? 'Set.' : 'PLATFORM_DEVICE_KEY_SECRET is empty: offline phone codes cannot be used.');
         $add('Code pepper', filled(config('platform.code_pepper') ?? env('PLATFORM_CODE_PEPPER')) ? 'ok' : 'fail', filled(config('platform.code_pepper') ?? env('PLATFORM_CODE_PEPPER')) ? 'Set. Never change it.' : 'PLATFORM_CODE_PEPPER is empty.');
+        $add('Voice callback token', config('platform.voice.require_token', true) ? 'ok' : 'fail', config('platform.voice.require_token', true) ? 'Required: callbacks must carry the number\'s secret.' : 'NOT required (PLATFORM_VOICE_REQUIRE_TOKEN=false). Anyone who knows the callback address can submit digits. Temporary: turn it back on.');
         $add('Debug mode', config('app.debug') && app()->environment('production') ? 'fail' : 'ok', config('app.debug') && app()->environment('production') ? 'APP_DEBUG is on in production: errors leak details.' : 'Off, or not production.');
         $add('Operator two-factor', \App\Http\Middleware\EnsureTwoFactor::required() ? 'ok' : 'warn', \App\Http\Middleware\EnsureTwoFactor::required() ? 'Required for every operator.' : 'Not required on this deployment.');
 

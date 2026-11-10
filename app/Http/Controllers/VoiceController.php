@@ -43,7 +43,7 @@ class VoiceController extends Controller
             ->where('active', true)
             ->first();
 
-        if (! $number || ! $number->acceptsToken($token)) {
+        if (! $number || (config('platform.voice.require_token', true) && ! $number->acceptsToken($token))) {
             RateLimiter::hit($badTokenKey, 60);
 
             // Say why, to whoever reads the call log (the caller only ever gets a 403).

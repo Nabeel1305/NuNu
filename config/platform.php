@@ -82,6 +82,10 @@ return [
     'voice' => [
         'per_number_per_minute' => (int) env('PLATFORM_VOICE_PER_NUMBER_PER_MINUTE', 600),
         'bad_token_per_ip_per_minute' => 30,
+        // TEMPORARY SWITCH. true (the default): a callback must carry the number's secret ?token=. false: the dialled number alone
+        // identifies the tenant. Anyone who knows the callback address can then submit digits as if they were the provider, so
+        // use it only while setting up (e.g. behind PakaPay's forward) and turn it back on.
+        'require_token' => (bool) env('PLATFORM_VOICE_REQUIRE_TOKEN', true),
     ],
 
     // Resolving captures that never reported back (see CodeService::reconcilePending).

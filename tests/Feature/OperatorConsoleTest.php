@@ -632,4 +632,23 @@ class OperatorConsoleTest extends TestCase
         $this->assertSame(['voice', 'unknown_code', 'sub-1'], [$data['origin'], $data['reason'], $data['subscriber_reference']]);
         $this->assertStringNotContainsString('1234567890', json_encode($events->first()->payload));
     }
+
+    public function test_the_callback_token_can_be_switched_off_temporarily_but_an_unknown_number_is_still_refused(): void
+    {
+        [$tenant, $key] = $this->makeTenant();
+        $this->seedParties($tenant);
+        $this->makeVoiceNumber('+2342017001724', $tenant);
+
+        // Default: no token, no entry.
+        $this->post('/api/voice/africastalking', ['destinationNumber' => '+2342017001724', 'callerNumber' => '+2348012345678', 'sessionId' => 's1', 'isActive' => '1'])->assertForbidden();
+
+        config(['platform.voice.require_token' => false]);
+        $this->post('/api/voice/africastalking', ['destinationNumber' => '+2342017001724', 'callerNumber' => '+2348012345678', 'sessionId' => 's2', 'isActive' => '1'])->assertOk()->assertSee('GetDigits', false);
+        $this->post('/api/voice/africastalking', ['destinationNumber' => '+2347999999999', 'callerNumber' => '+2348012345678', 'sessionId' => 's3', 'isActive' => '1'])->assertForbidden();
+
+        $owner = $this->op();
+        $this->as($owner)->get('/admin/calls')->assertOk()->assertSee('Callback token is switched off');
+        $checks = collect(\App\Http\Controllers\Admin\HealthController::checks())->keyBy('label');
+        $this->assertSame('fail', $checks['Voice callback token']['status']);
+    }
 }
