@@ -46,12 +46,17 @@ class HealthController extends Controller
             $add('Queue backlog', $age > 300 ? 'fail' : ($age > 60 ? 'warn' : 'ok'), DB::table('jobs')->count() . ' waiting' . ($oldest ? ", oldest {$age}s old" : '') . ($age > 300 ? '. Is a worker running?' : '.'));
         }
 
+        $oldest = DB::table('webhook_deliveries')->where('status', 'pending')->where('attempts', 0)->min('created_at');
+        $waiting = $oldest ? (int) abs(now()->diffInSeconds(\Illuminate\Support\Carbon::parse($oldest))) : 0;
+        $add('Webhook sending', $waiting > 300 ? 'fail' : ($waiting > 120 ? 'warn' : 'ok'),
+            $oldest ? "An event has waited {$waiting}s and was never attempted." . ($waiting > 120 ? ' The queue worker is probably not running (php artisan queue:work). It is re-queued every minute, but nothing sends it without a worker.' : '') : 'Nothing is waiting.');
+
         $failed = Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : 0;
         $add('Failed jobs', $failed ? 'warn' : 'ok', $failed ? "{$failed} failed job(s). Run php artisan queue:retry all after fixing the cause." : 'None.');
 
         $beat = Cache::get('platform:scheduler:last');
         $add('Scheduler', $beat && now()->timestamp - $beat < 180 ? 'ok' : 'fail',
-            $beat ? 'Last ran ' . now()->diffInSeconds(\Illuminate\Support\Carbon::createFromTimestamp($beat)) . 's ago.' : 'No sign of it running. Codes will not expire and payments will not be re-checked. Run php artisan schedule:work.');
+            $beat ? 'Last ran ' . (int) abs(now()->diffInSeconds(\Illuminate\Support\Carbon::createFromTimestamp($beat))) . 's ago.' : 'No sign of it running. Codes will not expire and payments will not be re-checked. Run php artisan schedule:work.');
 
         $add('Device key secret', filled(config('platform.device_key_secret')) ? 'ok' : 'warn', filled(config('platform.device_key_secret')) ? 'Set.' : 'PLATFORM_DEVICE_KEY_SECRET is empty: offline phone codes cannot be used.');
         $add('Code pepper', filled(config('platform.code_pepper') ?? env('PLATFORM_CODE_PEPPER')) ? 'ok' : 'fail', filled(config('platform.code_pepper') ?? env('PLATFORM_CODE_PEPPER')) ? 'Set. Never change it.' : 'PLATFORM_CODE_PEPPER is empty.');

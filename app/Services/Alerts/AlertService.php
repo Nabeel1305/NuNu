@@ -51,6 +51,11 @@ class AlertService
             $p['webhooks'] = "{$failedHooks} webhook deliveries gave up in the last hour.";
         }
 
+        $unsent = DB::table('webhook_deliveries')->where('status', 'pending')->where('attempts', 0)->where('created_at', '<=', now()->subMinutes(5))->count();
+        if ($unsent > 0) {
+            $p['webhook_unsent'] = "{$unsent} webhook event(s) have waited over 5 minutes and were never attempted: the queue worker is probably not running, so banks are not being told about payments.";
+        }
+
         if (Schema::hasTable('failed_jobs') && ($n = DB::table('failed_jobs')->count()) > 0) {
             $p['jobs'] = "{$n} queue job(s) have failed.";
         }

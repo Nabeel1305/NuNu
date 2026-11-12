@@ -651,4 +651,30 @@ class OperatorConsoleTest extends TestCase
         $checks = collect(\App\Http\Controllers\Admin\HealthController::checks())->keyBy('label');
         $this->assertSame('fail', $checks['Voice callback token']['status']);
     }
+
+    public function test_unsent_webhooks_are_requeued_flagged_and_alerted_about(): void
+    {
+        \Illuminate\Support\Facades\Queue::fake();
+        [$tenant] = $this->makeTenant();
+        $endpoint = app(TenantContext::class)->run($tenant, fn () => WebhookEndpoint::create(['url' => 'https://hooks.example.com/h', 'secret' => 'whsec_x']));
+        $mk = fn (array $o = []) => WebhookDelivery::withoutGlobalScopes()->create($o + ['tenant_id' => $tenant->id, 'webhook_endpoint_id' => $endpoint->id,
+            'event_id' => (string) \Illuminate\Support\Str::uuid(), 'event_type' => 'transaction.settled', 'payload' => ['data' => []], 'status' => 'pending', 'attempts' => 0, 'next_attempt_at' => now()]);
+        $stale = $mk();
+        $fresh = $mk();
+        $tried = $mk(['attempts' => 2]);
+        $stale->forceFill(['created_at' => now()->subMinutes(10)])->save();
+        $tried->forceFill(['created_at' => now()->subMinutes(10)])->save();
+
+        $this->artisan('webhooks:requeue')->expectsOutput('Queued again: 1.')->assertSuccessful();
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\DeliverWebhook::class, 1);
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\DeliverWebhook::class, fn ($j) => $j->deliveryId === $stale->id);
+
+        $checks = collect(\App\Http\Controllers\Admin\HealthController::checks())->keyBy('label');
+        $this->assertSame('fail', $checks['Webhook sending']['status']);
+        $this->assertStringContainsString('queue worker', $checks['Webhook sending']['detail']);
+        $this->assertArrayHasKey('webhook_unsent', app(AlertService::class)->problems());
+
+        $stale->update(['status' => 'delivered', 'attempts' => 1]);
+        $this->assertArrayNotHasKey('webhook_unsent', app(AlertService::class)->problems());
+    }
 }
