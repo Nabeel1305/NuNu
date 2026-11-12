@@ -682,14 +682,70 @@ class OperatorConsoleTest extends TestCase
     {
         $this->post('/cron/tick')->assertNotFound();                                  // not switched on
 
-        config(['platform.cron_token' => 'a-long-random-cron-token']);
+        config(['platform.cron_token' => 'a-long-random-cron-token', 'platform.cron_background' => false]);
         $this->post('/cron/tick')->assertForbidden();
         $this->post('/cron/tick', [], ['Authorization' => 'Bearer wrong'])->assertForbidden();
 
         Cache::forget('platform:scheduler:last');
+        Cache::forget('platform:cron-tick');
         $this->post('/cron/tick', [], ['Authorization' => 'Bearer a-long-random-cron-token'])->assertOk()->assertJsonPath('ok', true);
         $this->assertNotNull(Cache::get('platform:scheduler:last'), 'the tick ran the schedule, so the health page sees the scheduler');
+        Cache::forget('platform:cron-tick');
         $this->get('/cron/tick?token=a-long-random-cron-token')->assertOk();
+        Cache::forget('platform:cron-tick');
         $this->post('/cron/tick', [], ['X-Cron-Token' => 'a-long-random-cron-token'])->assertOk();
+    }
+
+    public function test_a_cron_tick_answers_at_once_and_starts_the_schedule_in_the_background(): void
+    {
+        config(['platform.cron_token' => 'a-long-random-cron-token']);
+        $started = [];
+        $this->app->instance(\App\Support\BackgroundArtisan::class, new class($started) extends \App\Support\BackgroundArtisan {
+            public function __construct(public array &$log) {}
+
+            public function start(string $command): bool
+            {
+                $this->log[] = $command;
+
+                return true;
+            }
+        });
+        Cache::forget('platform:scheduler:last');
+
+        $this->post('/cron/tick', [], ['Authorization' => 'Bearer a-long-random-cron-token'])->assertStatus(202)->assertJsonPath('started', true);
+        $this->assertSame(['schedule:run'], $started);
+        $this->assertNull(Cache::get('platform:scheduler:last'), 'nothing ran inside the request');
+
+        // A second call straight away is the same tick.
+        $this->post('/cron/tick', [], ['Authorization' => 'Bearer a-long-random-cron-token'])->assertOk()->assertJsonPath('skipped', 'a tick just ran');
+        $this->assertCount(1, $started);
+
+        // Where a process cannot be started, it still runs, inline.
+        Cache::forget('platform:cron-tick');
+        $this->app->instance(\App\Support\BackgroundArtisan::class, new class extends \App\Support\BackgroundArtisan {
+            public function start(string $command): bool
+            {
+                return false;
+            }
+        });
+        $this->post('/cron/tick', [], ['Authorization' => 'Bearer a-long-random-cron-token'])->assertOk()->assertJsonPath('ok', true);
+        $this->assertNotNull(Cache::get('platform:scheduler:last'));
+    }
+
+    public function test_the_cron_url_can_be_opened_without_a_token_only_by_the_temporary_switch_and_health_says_so(): void
+    {
+        config(['platform.cron_background' => false]);
+        $this->post('/cron/tick')->assertNotFound();
+
+        config(['platform.cron_require_token' => false]);
+        $this->post('/cron/tick')->assertOk()->assertJsonPath('ok', true);
+
+        $checks = collect(\App\Http\Controllers\Admin\HealthController::checks())->keyBy('label');
+        $this->assertSame('fail', $checks['Cron tick URL']['status']);
+        $this->assertStringContainsString('NO token', $checks['Cron tick URL']['detail']);
+
+        config(['platform.cron_require_token' => true, 'platform.cron_token' => 'tok-tok-tok-tok-tok']);
+        Cache::forget('platform:cron-tick');
+        $this->post('/cron/tick')->assertForbidden();
     }
 }

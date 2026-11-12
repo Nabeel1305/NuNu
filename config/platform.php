@@ -41,6 +41,10 @@ return [
     // Set to a long random value to let an external cron service run the schedule by calling POST /cron/tick every minute
     // (see CronController). Leave empty when a scheduler process (`schedule:work`) is running instead.
     'cron_token' => env('PLATFORM_CRON_TOKEN'),
+    // TEMPORARY SWITCH. false: POST /cron/tick needs no token (anyone who knows the address can start a tick). Use only while setting up.
+    'cron_require_token' => (bool) env('PLATFORM_CRON_REQUIRE_TOKEN', true),
+    // true: a tick starts the schedule as a separate process and answers at once (202). false: it runs inside the request and waits.
+    'cron_background' => (bool) env('PLATFORM_CRON_BACKGROUND', true),
 
     // Alerts to operators. Slack incoming-webhook URL and/or a comma-separated list of emails (needs working MAIL_*).
     'alerts' => [
