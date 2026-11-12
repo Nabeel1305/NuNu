@@ -677,4 +677,19 @@ class OperatorConsoleTest extends TestCase
         $stale->update(['status' => 'delivered', 'attempts' => 1]);
         $this->assertArrayNotHasKey('webhook_unsent', app(AlertService::class)->problems());
     }
+
+    public function test_an_external_cron_can_tick_the_schedule_only_with_the_token(): void
+    {
+        $this->post('/cron/tick')->assertNotFound();                                  // not switched on
+
+        config(['platform.cron_token' => 'a-long-random-cron-token']);
+        $this->post('/cron/tick')->assertForbidden();
+        $this->post('/cron/tick', [], ['Authorization' => 'Bearer wrong'])->assertForbidden();
+
+        Cache::forget('platform:scheduler:last');
+        $this->post('/cron/tick', [], ['Authorization' => 'Bearer a-long-random-cron-token'])->assertOk()->assertJsonPath('ok', true);
+        $this->assertNotNull(Cache::get('platform:scheduler:last'), 'the tick ran the schedule, so the health page sees the scheduler');
+        $this->get('/cron/tick?token=a-long-random-cron-token')->assertOk();
+        $this->post('/cron/tick', [], ['X-Cron-Token' => 'a-long-random-cron-token'])->assertOk();
+    }
 }

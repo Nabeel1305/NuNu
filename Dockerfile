@@ -40,4 +40,6 @@ RUN mkdir -p storage/framework/views storage/framework/cache/data storage/framew
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
 RUN php artisan storage:link
-RUN php artisan optimize
+# Cache routes, events and views, but NOT the config: `artisan optimize` would bake the build-time environment into the image and
+# ignore the variables set on the host at run time (a QUEUE_CONNECTION change then seemed to have no effect).
+RUN php artisan route:cache && php artisan event:cache && php artisan view:cache

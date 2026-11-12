@@ -34,6 +34,14 @@ return [
         'currency' => env('PLATFORM_DEVICE_CODE_CURRENCY', 'NGN'),
     ],
 
+    // No separate queue worker? Set true and the scheduler (which must be running) also drains the queue every minute, so webhooks go out
+    // within about a minute. A real `queue:work` worker is faster and is the recommended setup; this is the fallback.
+    'queue_in_scheduler' => (bool) env('PLATFORM_QUEUE_IN_SCHEDULER', false),
+
+    // Set to a long random value to let an external cron service run the schedule by calling POST /cron/tick every minute
+    // (see CronController). Leave empty when a scheduler process (`schedule:work`) is running instead.
+    'cron_token' => env('PLATFORM_CRON_TOKEN'),
+
     // Alerts to operators. Slack incoming-webhook URL and/or a comma-separated list of emails (needs working MAIL_*).
     'alerts' => [
         'slack_webhook' => env('PLATFORM_ALERT_SLACK_WEBHOOK'),

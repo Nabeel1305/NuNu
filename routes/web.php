@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
 
+// An outside cron service ticks the schedule here when there is no scheduler process. 404 unless PLATFORM_CRON_TOKEN is set.
+Route::match(['GET', 'POST'], 'cron/tick', \App\Http\Controllers\CronController::class)->middleware('throttle:20,1')->name('cron.tick');
+
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('login', [AuthController::class, 'show'])->name('login');
     Route::post('login', [AuthController::class, 'login']);
