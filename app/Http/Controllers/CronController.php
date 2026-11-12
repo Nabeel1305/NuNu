@@ -34,7 +34,7 @@ class CronController extends Controller
         }
 
         try {
-            Artisan::call('queue:work --stop-when-empty');
+            Artisan::call('schedule:run');
             $out = trim(Artisan::output());
         } finally {
             $lock->release();
