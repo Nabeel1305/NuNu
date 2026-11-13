@@ -39,12 +39,12 @@ class CronController extends Controller
 
         // By default the schedule runs as its own process and this call answers at once: cron services give up after about
         // 30 seconds, and the queue drain alone can take longer. Each task already guards against overlapping itself.
-        if (app(BackgroundArtisan::class)->start('queue:work')) {
+        if (app(BackgroundArtisan::class)->start('schedule:run')) {
             return response()->json(['ok' => true, 'started' => true], 202);
         }
 
         // Not allowed to start a process on this host (or switched off): run it here and wait.
-        Artisan::call('queue:work');
+        Artisan::call('schedule:run');
         $out = trim(Artisan::output());
 
         return response()->json(['ok' => true, 'ran' => $out === '' ? 0 : substr_count($out, 'Running')]);
